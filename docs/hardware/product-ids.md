@@ -1,7 +1,12 @@
 # RME USB Product IDs
 
-All RME USB interfaces share vendor ID `0x0424` (Standard Microsystems Corp., the
-USB controller vendor). The official macOS driver (`FirefaceUSB.kext`) supports the
+Older RME USB firmwares (Fireface UC v118 and earlier) enumerate with vendor ID
+`0x0424` (Standard Microsystems Corp., the USB controller vendor). **Newer firmwares
+use RME's own vendor ID `0x2a39`** with the same product IDs scheme — a Fireface UC
+with a recent firmware shows up as `2a39:3fce "Fireface UC Win"` in PC mode (raw dump:
+[`device_descriptor_2a39_3fce_pc_mode`](../../device_descriptor_2a39_3fce_pc_mode)).
+The Linux kernel matches RME devices on `0x2a39` (e.g. Digiface USB `2a39:3f8c` /
+`2a39:3fa0`, Babyface Pro FS `2a39:3fb0`). The official macOS driver (`FirefaceUSB.kext`) supports the
 whole family and branches on the product ID; this is why most reimplemented
 functions in [`asm/`](../../asm) start with `uint16_t productId = 0x3fc6;`.
 
@@ -34,9 +39,11 @@ special case for `0x3fa0`.
 
 The Fireface UC exposes **two product IDs depending on its operating mode**:
 
-* `0x3fc5` — **PC mode** (Windows): audio uses BULK endpoints.
-  `getDeviceNameByTypeId()` reports it as *undefined*.
-* `0x3fc6` — **AP mode** (Mac): audio uses ISOCHRONOUS endpoints.
+* **PC mode** (Windows): `0424:3fc5` on old firmwares, `2a39:3fce` on new ones.
+  Audio uses non-isochronous endpoints. `getDeviceNameByTypeId()` (driver v2.20)
+  reports both IDs as *undefined*.
+* **AP mode** (Mac): `0424:3fc6`, and presumably `2a39:3fc6` on new firmwares (to be
+  confirmed). Audio uses ISOCHRONOUS endpoints.
   **This is the only mode targeted by this project.**
 
 See [device-descriptor.md](device-descriptor.md) for how to switch modes.

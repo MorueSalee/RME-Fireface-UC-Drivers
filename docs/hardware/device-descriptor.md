@@ -6,10 +6,18 @@ Raw `lsusb -v` dump: [`device_descriptor`](../../device_descriptor) (serial numb
 
 The Fireface UC can run in two modes, which change the whole USB descriptor:
 
-| Mode     | Product ID | Audio transfer type | Target OS |
-| -------- | ---------- | ------------------- | --------- |
-| PC       | `0x3fc5`   | BULK                | Windows   |
-| **AP**   | `0x3fc6`   | **ISOCHRONOUS**     | macOS     |
+| Mode     | ID (firmware ≤ v118) | ID (newer firmware) | Audio transfer type | Target OS |
+| -------- | -------------------- | ------------------- | ------------------- | --------- |
+| PC       | `0424:3fc5`          | `2a39:3fce`         | BULK / interrupt    | Windows   |
+| **AP**   | `0424:3fc6`          | `2a39:3fc6` (?)     | **ISOCHRONOUS**     | macOS     |
+
+### PC mode on a recent firmware (`2a39:3fce`)
+
+Raw dump: [`device_descriptor_2a39_3fce_pc_mode`](../../device_descriptor_2a39_3fce_pc_mode).
+6 interfaces; interface 0 alt 0–3 carries `EP 0x01 OUT` / `0x82 IN` (declared
+*interrupt*, 64 / 576 / 896 / 768 bytes) plus `EP 0x03 OUT` / `0x84 IN` (bulk,
+interrupt on alt 3); interfaces 1–4 are bulk like in AP mode; interface 5 has a
+4-byte interrupt `EP 0x8b IN`. Not targeted, kept for reference.
 
 To switch mode: with the USB cable **unplugged**, quickly double-click the control
 knob on the front panel.

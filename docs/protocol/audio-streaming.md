@@ -68,16 +68,61 @@ A block is therefore **one frame**: one 32-bit float sample per channel
       |__ch_16____|__ch_17____| |__ch_18____|
 ```
 
-### The 4-byte header word
+### Sample format: float32 (verified)
 
-Its meaning is not confirmed. The prototype in
-[`libusb_test/rme_uc.c`](../../libusb_test/rme_uc.c) (`fill_audio_data()`) treats it as
-a **running frame counter** (`unkId`): it starts at `0x16`, is incremented by the
-number of frames in each subframe, and wraps after `0xffff`.
+In `cap/play/play_square_22050Hz_pb_1.pcapng` (22050 Hz square on playback 1 at
+44.1 kHz, so the sign flips every sample) channel 1 alternates `0x3f7ffe00` /
+`0xbf7ffe00`: only the sign bit changes, i.e. **IEEE-754 float ±0.99997**. A signed
+integer format would give `0xc0800200` for the negative value.
 
-## Capture at 44100 Hz
+> This differs from the sibling RME Digiface USB, which the Linux kernel drives as
+> `S32_LE` (24 bits). `snd-usb-audio` also handles `SNDRV_PCM_FMTBIT_FLOAT_LE`.
 
-**TODO** — not analysed yet.
+### Word 0 of each frame: per-packet frame counter (verified)
+
+Word 0 is **non-zero only in the first frame of each ISO packet**; in the other
+frames it is `0`. Its value is a running frame counter, incremented by the number
+of frames of the previous packet (`play_music_pb_1-2_out_1-2.pcapng`):
+
+```
+len 456 (6 frames)  word0 = 0x1620
+len 380 (5 frames)  word0 = 0x1626   (+6)
+len 456 (6 frames)  word0 = 0x162b   (+5)
+len 380 (5 frames)  word0 = 0x1631   (+6)
+```
+
+The prototype ([`fill_audio_data()`](../../libusb_test/rme_uc.c)) writes it in every
+frame (`unkId`, starting at `0x16`, wrapping after `0xffff`). Whether the device
+requires it at all is still to be tested on hardware.
+
+## Capture (device → host, `EP 0x82`)
+
+Observed at 44.1 kHz in `play_music_pb_1-2_out_1-2.pcapng`:
+
+* The host submits 8 packets of the full `wMaxPacketSize` (508 bytes on alt 1);
+  the device returns packets of **436 / 364 bytes**, alternating like playback.
+* `436 = 4 + 6 × 72`, `364 = 4 + 5 × 72`: 6 or 5 frames of **18 channels × 4 bytes**
+  (no per-frame extra word, unlike playback) plus **one 4-byte word per packet**.
+* Samples are **float32** too (noise floor values such as `0x35600000` ≈ 8e-7).
+* The position and meaning of the extra word are **not determined yet**: some
+  packets carry values that look like a timestamp (`0x21aac266`, `0x316ac7e6`,
+  `0x414acd66`, step `0x0fc00580`) and others look like samples. Needs a known
+  signal on an input (hardware loopback test).
+* The first packets after start are 4 bytes long (word only, no frames).
+
+The size of each received packet (5 or 6 frames) is what the host must mirror on
+playback → **implicit feedback**.
+
+## Analysis tools
+
+[`tools/usbmon_ctl.py`](../../tools/usbmon_ctl.py) lists control SETUP packets and
+[`tools/usbmon_iso.py`](../../tools/usbmon_iso.py) dumps ISO packets as 19-word rows,
+straight from the `.pcapng` files (no Wireshark needed):
+
+```sh
+python3 tools/usbmon_ctl.py cap/set_sample_rate_96000Hz.pcapng 0x1b,0x10
+python3 tools/usbmon_iso.py cap/play/play_square_22050Hz_pb_1.pcapng 0x01 S 5
+```
 
 ## Synchronisation
 

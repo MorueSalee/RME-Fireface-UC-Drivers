@@ -37,7 +37,7 @@ matching C lines (see [reverse-engineering.md](reverse-engineering.md#convention
 
 | Function | File | Built | USB requests | Role |
 | -------- | ---- | ----- | ------------ | ---- |
-| `CCardIOUC::SetGain()` → `setVolume(dev, ch, type, out, level)` | [CCardIOUC::SetGain.c](../asm/TotalmixFX/CCardIOUC::SetGain.c) | ✅ | `0x40 0x12` | Mixer matrix gain. Has known discrepancies with the assembly, see [mixer-routing.md](protocol/mixer-routing.md#index-encoding-on-the-wire). |
+| `CCardIOUC::SetGain()` → `setVolume(dev, ch, type, out, level)` | [CCardIOUC::SetGain.c](../asm/TotalmixFX/CCardIOUC::SetGain.c) | ✅ | `0x40 0x12` | Mixer matrix gain (linear, `0x8000` = 0 dB), checked against captures. See [mixer-routing.md](protocol/mixer-routing.md#index-encoding-on-the-wire). |
 | `CCardIOUC::WriteDWORD(val)` | [CCardIOUC::WriteDWORD.c](../asm/TotalmixFX/CCardIOUC::WriteDWORD.c) | ❌ (pseudo-code) | `0x40 0x17` | Maps TotalMix parameter IDs (`0x16`…`0x21` in the high word) to +48 V / PAD / Hi-Z bits. See [controls.md](protocol/controls.md#48-v-phantom-pad-hi-z-instrument). |
 
 ## Notes

@@ -364,10 +364,23 @@ int main( int argc, char **argv )
 
 	libusb_set_debug( NULL, LIBUSB_LOG_LEVEL_WARNING );
 
-	devh = libusb_open_device_with_vid_pid( NULL, 0x0424, 0x3fc6 );
+	devh = libusb_open_device_with_vid_pid( NULL, RME_UC_VENDOR, RME_UC_PRODUCT );
 
 	if ( !devh )
 	{
+		devh = libusb_open_device_with_vid_pid( NULL, RME_UC_VENDOR_OLD, RME_UC_PRODUCT );
+	}
+
+	if ( !devh )
+	{
+		libusb_device_handle *pc = libusb_open_device_with_vid_pid( NULL, RME_UC_VENDOR, RME_UC_PRODUCT_PC );
+
+		if ( pc )
+		{
+			fprintf( stderr, "Fireface UC found in PC (Win) mode : switch it to Mac mode\n" );
+			libusb_close( pc );
+		}
+
 		fprintf( stderr, "Error finding USB device : Running Offline\n" );
 	}
 

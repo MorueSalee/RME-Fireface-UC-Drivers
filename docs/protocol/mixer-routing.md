@@ -75,16 +75,30 @@ wIndex = ((level & 0x3) << 14) | (index & 0x3fff);
 The level is thus an 18-bit value split over `wValue` (bits 2–17) and `wIndex`
 (bits 14–15) — which is why captured `wIndex` values can exceed 16384.
 
-> **Known discrepancies** in the C reimplementation `setVolume()`
-> ([`CCardIOUC::SetGain.c`](../../asm/TotalmixFX/CCardIOUC::SetGain.c)) versus the
-> assembly above:
->
-> * it computes `outputID * 13 + channelType * 11 + channelID`, whereas the
->   `lea` sequence computes `outputID * 36 + channelType * 18 + channelID`
->   (`rdx+rdx*8` then `rsi+rax*2` → `18·type + ch`; `rcx+rcx*8` then `rax+rcx*4`
->   → `+ 36·out`), which matches the matrix table;
-> * it sends `wValue = level` instead of `level >> 2`.
->
-> See [roadmap.md](../roadmap.md).
+### Level scale
+
+`level` is a **linear gain where `0x8000` (32768) = 0 dB**:
+`level = 32768 · 10^(dB/20)`. Examples from the captures:
+
+| Gain | level | wValue | wIndex bits 14–15 |
+| ---- | ----- | ------ | ----------------- |
+| 0 dB | 32768 | `0x2000` | `00` |
+| -3 dB (pan centre) | 23170 | `0x16a0` | `10` |
+| -10 dB | 10362 | `0x0a1e` | `10` |
+| -20 dB | 3277 | `0x0333` | `01` |
+| -inf | 0 | `0x0000` | `00` |
+
+### Verification
+
+Both the index formula and the `>> 2` were checked against the captures:
+
+* IN1 (type 0, ch 0) sent to out 7 / out 8 → `wIndex` 216 / 252
+  (`36·6 + 0`, `36·7 + 0`) in `cap/pluginit_set_volume_IN1_unplug.pcapng`;
+* output faders 992–1009 with the levels above in
+  `cap/pluginit_full3_outputsLevels-*.pcapng`.
+
+The C reimplementation [`setVolume()`](../../asm/TotalmixFX/CCardIOUC::SetGain.c)
+originally used `out·13 + type·11 + ch` and `wValue = level`; it has been fixed to
+match the assembly.
 
 See [controls.md](controls.md#set-input--playback-volume) for the control transfer.

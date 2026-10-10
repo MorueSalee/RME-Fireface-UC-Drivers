@@ -50,23 +50,13 @@ int setVolume( libusb_device_handle *dev, uint32_t channelID, int8_t channelType
 		0x100061cf6	lea	ecx, qword [ds:rcx+rcx*8]
 		0x100061cf9	lea	ecx, qword [ds:rax+rcx*4]
 */
-//		int eax;
-//		eax = (channelType * 9);
-//		eax = (channelID + eax * 2);
+		uint32_t eax = channelID + (channelType * 9) * 2;	// ch + 18 * type
+		outputID = eax + (outputID * 9) * 4;			// + 36 * out
 
-//		eax = channelType * 11;
-//		eax += channelID;
-
-
-
-//		int ecx;
-//		ecx = (outputID * 9);
-//		ecx = (eax + ecx * 4);
-
-		outputID *= 13;
-		outputID += (channelType * 11) + channelID;
-//		outputID += eax;
-
+		/*
+			Checked against cap/pluginit_set_volume_IN1_unplug.pcapng :
+			IN1 (type 0, ch 0) -> out 7 / out 8 gives wIndex 216 / 252.
+		*/
 	}
 
 /*
@@ -76,14 +66,13 @@ int setVolume( libusb_device_handle *dev, uint32_t channelID, int8_t channelType
 	0x100061d09	cdqe
 	0x100061d0b	mov	qword [ss:rbp-0x20], rax	; wValue
 */
-	// that part is here because of the type of the input value.
-	// we should implement directly the right value so that part
-	// can be avoided.
-
-	// gcc implements arithmetic shift so that's fine
-	// level >>= 0x2;
-
-	// TODO: I dont fucking undersand what i wrote above..
+	/*
+		level is a linear gain, 0x8000 = 0 dB (e.g. -10 dB = 10362).
+		Its 2 low bits go to wIndex bits 14-15 (see below), the rest to wValue.
+		Checked against cap/pluginit_full3_outputsLevels-*.pcapng :
+		-10 dB -> wValue 0x0a1e, wIndex 0x83e8.
+	*/
+	uint16_t wValue = (uint16_t)(level >> 0x2);
 
 /*
 	0x100061d0f	and	ecx, 0x3fff
@@ -124,7 +113,7 @@ int setVolume( libusb_device_handle *dev, uint32_t channelID, int8_t channelType
 
 	ctrl.bmRequestType = 0x40;
 	ctrl.bRequest = 0x12;
-	ctrl.wValue = level;
+	ctrl.wValue = wValue;
 	ctrl.wIndex = channelID;
 	ctrl.wLength = 0x0000;
 

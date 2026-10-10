@@ -14,7 +14,7 @@ which builds `bmRequestType = (direction << 7) | 0x40`.
 
 | bmRequestType | bRequest    | wValue            | wIndex             | wLength | Meaning | Source function |
 | ------------- | ----------- | ----------------- | ------------------ | ------- | ------- | --------------- |
-| `0x40`        | `0x10` (16) | rate flags        | `0x0078`           | 0       | Set sample rate, packet 2/2 | [`hwSetSampleRate()`](../../asm/FirefaceUSB/hwSetSampleRate.c) |
+| `0x40`        | `0x10` (16) | `0x00`/`0x10`/`0x20` (rate family) | `0x0030` (mask) | 0       | Set sample rate, packet 2/2 | [`hwSetSampleRate()`](../../asm/FirefaceUSB/hwSetSampleRate.c) |
 | `0x40`        | `0x10` (16) | `FLAGS_2`         | `0x46cf`           | 0       | Clock source, single speed, AES/SPDIF, optical mode | [`hwWriteSettings_uc()`](../../asm/FirefaceUSBSettings/hwWriteSettings_uc.c) |
 | `0x40`        | `0x10` (16) | `0x0800`          | `0xb800`           | 0       | **Unknown** — sent once at init | [`hwInitHardware()`](../../asm/FirefaceUSB/hwInitHardware.c) |
 | `0xc0`        | `0x10` (16) | 0                 | 0                  | 4       | Read register (second word used by rate detection) | [`hwGetRate()`](../../asm/FirefaceUSB/hwGetRate.c) |

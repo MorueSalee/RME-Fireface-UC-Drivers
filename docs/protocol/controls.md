@@ -235,9 +235,30 @@ How the values are computed for the Fireface UC:
    `wValue = period >> 16`, `wIndex = (period & 0xff00) | flag`.
    Because the exact rate is used, non-standard rates work too — see the captures
    at 42336, 44056, 45937 Hz … in [`cap/`](../../cap).
-4. **Packet 2 (`0x10`)**: `wValue = (flag << 4) >> 1` (`0x00` / `0x08` / `0x10`),
-   then `| 0x20` if 56999 < rate < 114000, or `| 0x40` if rate ≥ 114000;
-   `wIndex = 0x0078` (mask of the bits written).
+4. **Packet 2 (`0x10`)**: `wValue = flag << 4` (`0x00` / `0x10` / `0x20`),
+   `wIndex = 0x0030` (mask of bits 4–5). The `>> 1` / `0x78` variant in
+   `hwSetSampleRate()` is for other products (`0x3fc2`, MADIface…), not the UC.
+
+Because of the `<< 1` / `<< 2`, the period register always holds the period of the
+**base rate** (32 / 44.1 / 48 kHz family): 48000, 96000 and 192000 Hz all send
+`0x1b 0x8235 0x5502`. Single / double / quad speed is selected **only** by the
+alternate setting (standard `SET_INTERFACE`, `bRequest 0x0b`) — which is why
+skipping it makes the rate fall back to the base multiple.
+
+Verified on every `cap/set_sample_rate_*.pcapng` capture:
+
+| Rate (Hz) | `0x1b` wValue / wIndex | `0x10` wValue | Alt setting |
+| --------- | ---------------------- | ------------- | ----------- |
+| 32000, 64000, 128000 | `0xc350` / `0x0000` | `0x0000` | 1 / 2 / 3 |
+| 44100, 88200, 176400 | `0x8db9` / `0x2d01` | `0x0010` | 1 / 2 / 3 |
+| 48000, 96000, 192000 | `0x8235` / `0x5502` | `0x0020` | 1 / 2 / 3 |
+| 42336 | `0x93a0` / `0xe501` | `0x0010` | 1 |
+| 45937 | `0x880e` / `0x4f01` | `0x0010` | 1 |
+| 46080 | `0x87a2` / `0x3802` | `0x0020` | 1 |
+| 50000 | `0x7d00` / `0x0002` | `0x0020` | 1 |
+
+The Linux driver for the sibling RME Digiface USB reads the current rate back as
+`104857600000000 / period` (`sound/usb/mixer_quirks.c`) — the same constant.
 
 ## Get Firmware Version
 
