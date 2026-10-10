@@ -1,6 +1,11 @@
-# USB Device Descriptor (AP mode, `0424:3fc6`)
+# USB Device Descriptor (AP mode)
 
-Raw `lsusb -v` dump: [`device_descriptor`](../../device_descriptor) (serial numbers masked).
+Raw `lsusb -v` dumps (serial numbers masked):
+
+* [`device_descriptor`](../../device_descriptor) — firmware v118, `0424:3fc6`;
+* [`device_descriptor_2a39_3fcf_ap_mode`](../../device_descriptor_2a39_3fcf_ap_mode) — recent firmware, `2a39:3fcf`.
+
+Both are identical apart from the vendor/product ID.
 
 ## Operating modes
 
@@ -9,7 +14,7 @@ The Fireface UC can run in two modes, which change the whole USB descriptor:
 | Mode     | ID (firmware ≤ v118) | ID (newer firmware) | Audio transfer type | Target OS |
 | -------- | -------------------- | ------------------- | ------------------- | --------- |
 | PC       | `0424:3fc5`          | `2a39:3fce`         | BULK / interrupt    | Windows   |
-| **AP**   | `0424:3fc6`          | `2a39:3fc6` (?)     | **ISOCHRONOUS**     | macOS     |
+| **AP**   | `0424:3fc6`          | `2a39:3fcf`         | **ISOCHRONOUS**     | macOS     |
 
 ### PC mode on a recent firmware (`2a39:3fce`)
 
@@ -19,8 +24,10 @@ Raw dump: [`device_descriptor_2a39_3fce_pc_mode`](../../device_descriptor_2a39_3
 interrupt on alt 3); interfaces 1–4 are bulk like in AP mode; interface 5 has a
 4-byte interrupt `EP 0x8b IN`. Not targeted, kept for reference.
 
-To switch mode: with the USB cable **unplugged**, quickly double-click the control
-knob on the front panel.
+To switch mode (*Fireface UC User's Guide*, §6 Hardware Installation): with the unit
+**powered on** and the USB cable **unplugged**, double-click the rotary encoder
+button. The display shows **`PC`** (Windows) or **`AP`** (Mac); each double click
+toggles. The change is refused while the unit is connected to the computer.
 
 **This project only targets AP mode.**
 

@@ -368,7 +368,7 @@ int main( int argc, char **argv )
 
 	if ( !devh )
 	{
-		devh = libusb_open_device_with_vid_pid( NULL, RME_UC_VENDOR_OLD, RME_UC_PRODUCT );
+		devh = libusb_open_device_with_vid_pid( NULL, RME_UC_VENDOR_OLD, RME_UC_PRODUCT_OLD );
 	}
 
 	if ( !devh )
@@ -621,6 +621,11 @@ SEND_AUDIO:
 
 		rc = send_iso_out( 0x01 );
 
+		if ( rc != 0 )	/* EOF or allocation error : nothing was submitted */
+		{
+			rc = 0;
+			break;
+		}
 
 		gettimeofday( &tv_mes, NULL );
 		timeout.tv_usec = 1000 - (tv_mes.tv_usec - tv_start.tv_usec);
@@ -636,7 +641,11 @@ SEND_AUDIO:
 		}
 	}
 
-	rc = libusb_handle_events( NULL );
+	/* let the last submitted transfer complete, without blocking when none is pending */
+	timeout.tv_sec = 0;
+	timeout.tv_usec = 100000;
+
+	rc = libusb_handle_events_timeout_completed( NULL, &timeout, NULL );
 
 	if ( rc != LIBUSB_SUCCESS )
 	{

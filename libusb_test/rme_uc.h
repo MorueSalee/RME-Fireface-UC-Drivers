@@ -9,7 +9,8 @@
  */
 #define RME_UC_VENDOR_OLD	0x0424  /*  1060, firmware <= v118 */
 #define RME_UC_VENDOR		0x2a39  /* 10809, newer firmwares  */
-#define RME_UC_PRODUCT		0x3fc6  /* 16326, AP (Mac) mode    */
+#define RME_UC_PRODUCT_OLD	0x3fc6  /* 16326, AP (Mac) mode on 0x0424 */
+#define RME_UC_PRODUCT		0x3fcf  /* 16335, AP (Mac) mode on 0x2a39 */
 #define RME_UC_PRODUCT_PC	0x3fce  /* PC (Win) mode on 0x2a39, not supported */
 
 

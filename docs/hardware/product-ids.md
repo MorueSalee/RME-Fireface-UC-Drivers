@@ -27,7 +27,7 @@ functions in [`asm/`](../../asm) start with `uint16_t productId = 0x3fc6;`.
 | 0x3fcc    | MADIface        |
 | 0x3fcd    | Fireface 802    |
 | 0x3fce    | *undefined*     |
-| 0x3fcf    | Fireface UC2    |
+| 0x3fcf    | Fireface UC2 (driver v2.20); Fireface UC in AP mode on vendor `0x2a39` |
 |           |                 |
 | 0x3fa0    | Digiface USB    |
 
@@ -42,8 +42,10 @@ The Fireface UC exposes **two product IDs depending on its operating mode**:
 * **PC mode** (Windows): `0424:3fc5` on old firmwares, `2a39:3fce` on new ones.
   Audio uses non-isochronous endpoints. `getDeviceNameByTypeId()` (driver v2.20)
   reports both IDs as *undefined*.
-* **AP mode** (Mac): `0424:3fc6`, and presumably `2a39:3fc6` on new firmwares (to be
-  confirmed). Audio uses ISOCHRONOUS endpoints.
+* **AP mode** (Mac): `0424:3fc6` on old firmwares, **`2a39:3fcf`** on new ones
+  (verified; descriptor otherwise identical, see
+  [`device_descriptor_2a39_3fcf_ap_mode`](../../device_descriptor_2a39_3fcf_ap_mode)).
+  Audio uses ISOCHRONOUS endpoints.
   **This is the only mode targeted by this project.**
 
 See [device-descriptor.md](device-descriptor.md) for how to switch modes.

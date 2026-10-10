@@ -29,9 +29,12 @@ packet).
       ([`device_descriptor_2a39_3fce_pc_mode`](../device_descriptor_2a39_3fce_pc_mode)).
 - [x] Offline pcapng tools: [`tools/usbmon_ctl.py`](../tools/usbmon_ctl.py),
       [`tools/usbmon_iso.py`](../tools/usbmon_iso.py).
-- [ ] Switch the UC to AP (Mac) mode, save its descriptor, confirm the ID (`2a39:3fc6`?).
-- [ ] udev rule for non-root access; `usbmon` + `tshark` for live captures.
-- [ ] Read the firmware version with the prototype.
+- [x] Switch the UC to AP (Mac) mode (double click on the encoder, USB unplugged, display `AP`):
+      ID is `2a39:3fcf`, descriptor identical to firmware v118.
+- [x] udev rule for non-root access ([`tools/70-rme-fireface-uc.rules`](../tools/70-rme-fireface-uc.rules));
+- [ ] `usbmon` + `tshark` for live captures.
+- [x] Read the firmware version with the prototype: **138**, control protocol unchanged
+      ([libusb-test.md](libusb-test.md#first-run-on-hardware-firmware-138-2a393fcf)).
 
 ### Phase 1 — Fix known-wrong code
 

@@ -1,0 +1,13 @@
+# Give the logged-in user access to the RME Fireface UC (all firmwares / modes),
+# so that the libusb prototype can run without root.
+#
+# Install:
+#   sudo cp tools/70-rme-fireface-uc.rules /etc/udev/rules.d/
+#   (keep a number < 73: TAG+="uaccess" is applied by 73-seat-late.rules)
+#   sudo udevadm control --reload-rules && sudo udevadm trigger
+# then unplug / replug the device.
+
+# Firmware <= v118 (SMSC vendor ID): AP and PC mode
+SUBSYSTEM=="usb", ATTRS{idVendor}=="0424", ATTRS{idProduct}=="3fc[56]", TAG+="uaccess"
+# Newer firmwares (RME vendor ID): AP (3fcf) and PC (3fce) mode
+SUBSYSTEM=="usb", ATTRS{idVendor}=="2a39", ATTRS{idProduct}=="3fc[ef]", TAG+="uaccess"

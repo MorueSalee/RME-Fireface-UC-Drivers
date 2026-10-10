@@ -40,6 +40,26 @@ outputs and closes the device. Without a device it prints
 `Running Offline` and continues: control requests are only traced (handy to check
 the computed `wValue`/`wIndex`), but ISO streaming cannot work.
 
+A dry run that exercises all control requests without sending audio:
+
+```sh
+./bin/rme_uc < /dev/null      # init, rate, unmute, EOF, mute
+```
+
+## First run on hardware (firmware 138, `2a39:3fcf`)
+
+`rx_data` is printed byte by byte, i.e. little-endian; the 32-bit values are:
+
+| Request | Raw bytes | Value | Decoded |
+| ------- | --------- | ----- | ------- |
+| `0xc0 0x1c` revision | `03 01 8a 00` | `0x008a0103` | firmware **138** (`>> 16`) |
+| `0xc0 0x11` status | `00 ff f0 01` | `0x01f0ff00` | clock source 7 (internal), base 44.1 kHz, single speed, no input locked |
+| `0xc0 0x10` | `10 4a 00 00` | `0x00004a10` | unknown |
+| `0xc0 0x19` | `04 00 00 00` | `0x00000004` | unknown |
+
+`hwGetRate()` returns 44100 Hz and the device accepts `hwSetSampleRate(44100)`
+and mute / unmute. The whole control protocol of firmware v118 works unchanged.
+
 ## What `main()` does
 
 1. `libusb_open_device_with_vid_pid(0x0424, 0x3fc6)`, claim interface 0, select
