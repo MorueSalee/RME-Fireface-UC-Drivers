@@ -5,7 +5,9 @@ Format: for each packet, a uint16 length then the packet bytes.
 Packet layout: 4-byte header, then 18 planar channel blocks of n float32 samples
 (see docs/protocol/audio-streaming.md).
 
-Usage: capture_dump.py <file> [channel ...]   (channels 1-18, default 1 2)
+Usage: capture_dump.py [--channels N] <file> [channel ...]
+       N = channels in the stream: 18 (alt 1), 14 (alt 2), 12 (alt 3); default 18.
+       Channels to print default to 1 2.
 """
 import collections
 import struct
@@ -23,20 +25,24 @@ def packets(path):
         off += 2 + length
 
 
-def split(pkt):
-    """Return (header, frames, [samples of channel 1 .. 18])."""
-    n = (len(pkt) - 4) // (CHANNELS * 4)
+def split(pkt, channels=CHANNELS):
+    """Return (header, frames, [samples of channel 1 .. channels])."""
+    n = (len(pkt) - 4) // (channels * 4)
     header = struct.unpack_from('<I', pkt)[0]
-    samples = struct.unpack_from(f'<{CHANNELS * n}f', pkt, 4)
-    return header, n, [samples[c * n:(c + 1) * n] for c in range(CHANNELS)]
+    samples = struct.unpack_from(f'<{channels * n}f', pkt, 4)
+    return header, n, [samples[c * n:(c + 1) * n] for c in range(channels)]
 
 
 def main():
-    path = sys.argv[1]
-    wanted = [int(c) for c in sys.argv[2:]] or [1, 2]
+    args = sys.argv[1:]
+    channels = CHANNELS
+    if args[:1] == ['--channels']:
+        channels, args = int(args[1]), args[2:]
+    path = args[0]
+    wanted = [int(c) for c in args[1:]] or [1, 2]
     sizes = collections.Counter()
     for i, pkt in enumerate(packets(path)):
-        header, n, chans = split(pkt)
+        header, n, chans = split(pkt, channels)
         sizes[n] += 1
         if i < 6:
             print(f'header 0x{header:08x} (ts {header & 0xffff:5d})  frames {n}  ' +

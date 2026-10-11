@@ -26,11 +26,36 @@ static unsigned long /*num_bytes = 0,*/ num_xfer = 0;
 #define ISO_PACKETS	8	/* 1 ms of audio per transfer (8 microframes) */
 #define ISO_OUT_XFERS	4	/* transfers queued ahead : ~4 ms of latency */
 
-#define FRAME_WORDS	19	/* frame counter (or 0) + 18 channels, float32 */
-#define MAX_PKT_FRAMES	7	/* wMaxPacketSize of alt 1 : 532 bytes = 7 frames */
+/*
+	Stream layout per alternate setting, from the wMaxPacketSize of EP 0x01 / 0x82
+	(playback frame = counter word + channels, capture packet = 4 + frames x channels) :
+
+	  alt 1   32 -  48 kHz   18 channels    532 = 7 x 19 x 4    508 = 4 + 7 x 18 x 4
+	  alt 2   64 -  96 kHz   14 channels    780 = 13 x 15 x 4   732 = 4 + 13 x 14 x 4
+	  alt 3  128 - 192 kHz   12 channels   1304 >= 25 x 13 x 4 1208 = 4 + 25 x 12 x 4
+*/
+struct stream_cfg {
+	int alt;
+	int channels;
+	int max_pkt_frames;
+	int in_pkt_sz;
+};
+
+static const struct stream_cfg stream_cfgs[] = {
+	{ 1, 18,  7,  508 },
+	{ 2, 14, 13,  732 },
+	{ 3, 12, 25, 1208 },
+};
+
+#define MAX_CHANNELS	18
+#define MAX_PKT_FRAMES	25
+#define MAX_IN_PKT_SZ	1208
+
+static const struct stream_cfg *cfg = &stream_cfgs[0];
+static uint32_t stream_rate = 44100;	/* RME_RATE=<Hz> */
 
 static struct libusb_transfer *iso_out_xfr[ISO_OUT_XFERS];
-static uint32_t iso_out_buf[ISO_OUT_XFERS][ISO_PACKETS * MAX_PKT_FRAMES * FRAME_WORDS];
+static uint32_t iso_out_buf[ISO_OUT_XFERS][ISO_PACKETS * MAX_PKT_FRAMES * ( MAX_CHANNELS + 1 )];
 static int iso_out_in_flight = 0;
 
 static int fill_iso_out( struct libusb_transfer *xfr );
@@ -41,10 +66,9 @@ static int fill_iso_out( struct libusb_transfer *xfr );
 */
 #define EP_ISO_IN	0x82
 #define ISO_IN_XFERS	4
-#define ISO_IN_PKT_SZ	508
 
 static struct libusb_transfer *iso_in_xfr[ISO_IN_XFERS];
-static uint8_t iso_in_buf[ISO_IN_XFERS][ISO_PACKETS * ISO_IN_PKT_SZ];
+static uint8_t iso_in_buf[ISO_IN_XFERS][ISO_PACKETS * MAX_IN_PKT_SZ];
 static int iso_in_in_flight = 0;
 
 static unsigned long long frames_out = 0;	/* frames submitted on EP 0x01 */
@@ -108,7 +132,10 @@ static uint8_t next_out_packet_frames( void )
 	}
 
 	fb_misses++;
-	fb_last = ( fb_last == 5 ) ? 6 : 5;
+
+	/* alternate around the nominal frames per microframe (5 / 6 at 44.1 kHz) */
+	uint8_t lo = stream_rate / 8000, hi = ( stream_rate + 7999 ) / 8000;
+	fb_last = ( fb_last == lo ) ? hi : lo;
 
 	return fb_last;
 }
@@ -183,6 +210,7 @@ static int fill_iso_out( struct libusb_transfer *xfr )
 {
 	uint32_t *buf = (uint32_t *)xfr->buffer;
 	uint32_t pcm[ISO_PACKETS * MAX_PKT_FRAMES];
+	int frame_words = cfg->channels + 1;
 	uint8_t  frames[ISO_PACKETS];
 
 	int p = 0, f = 0, total = 0, z = 0;
@@ -191,16 +219,16 @@ static int fill_iso_out( struct libusb_transfer *xfr )
 	{
 		frames[p] = next_out_packet_frames();
 
-		if ( frames[p] > MAX_PKT_FRAMES )
+		if ( frames[p] > cfg->max_pkt_frames )
 		{
-			frames[p] = MAX_PKT_FRAMES;
+			frames[p] = cfg->max_pkt_frames;
 		}
 
 		total += frames[p];
 	}
 
 	memset( pcm, 0, sizeof( pcm ) );
-	memset( buf, 0, total * FRAME_WORDS * 4 );
+	memset( buf, 0, total * frame_words * 4 );
 
 	if ( total > 0 && read_full( pcm, total * 4 ) == 0 )
 	{
@@ -212,7 +240,7 @@ static int fill_iso_out( struct libusb_transfer *xfr )
 	{
 		for ( f = 0; f < frames[p]; f++ )
 		{
-			uint32_t *frame = buf + ( z * FRAME_WORDS );
+			uint32_t *frame = buf + ( z * frame_words );
 
 			/*
 				Frame counter, modulo 8192 like the official driver
@@ -228,7 +256,7 @@ static int fill_iso_out( struct libusb_transfer *xfr )
 			{
 				float ramp = (float)( id_frame++ % 100 ) / 100.0f;
 
-				for ( int c = 0; c < 18; c++ )
+				for ( int c = 0; c < cfg->channels; c++ )
 				{
 					float v = 0.002f * ( c + 1 ) * ramp;
 					memcpy( &frame[1 + c], &v, 4 );
@@ -243,11 +271,11 @@ static int fill_iso_out( struct libusb_transfer *xfr )
 			z++;
 		}
 
-		xfr->iso_packet_desc[p].length = frames[p] * FRAME_WORDS * 4;
+		xfr->iso_packet_desc[p].length = frames[p] * frame_words * 4;
 		unkId += frames[p];
 	}
 
-	xfr->length = total * FRAME_WORDS * 4;
+	xfr->length = total * frame_words * 4;
 	frames_out += total;
 
 	return 0;
@@ -271,8 +299,8 @@ static void cb_xfr_in( struct libusb_transfer *xfr )
 
 		if ( d->status == LIBUSB_TRANSFER_COMPLETED && d->actual_length >= 4 )
 		{
-			frames_in += ( d->actual_length - 4 ) / 72;
-			fb_push( ( d->actual_length - 4 ) / 72 );
+			frames_in += ( d->actual_length - 4 ) / ( cfg->channels * 4 );
+			fb_push( ( d->actual_length - 4 ) / ( cfg->channels * 4 ) );
 
 			/* record : uint16 length, then the packet bytes */
 			if ( dump_in && frames_in > DUMP_IN_SKIP && dumped_in < DUMP_IN_PACKETS )
@@ -287,13 +315,18 @@ static void cb_xfr_in( struct libusb_transfer *xfr )
 	}
 
 	/* every 10 s of capture : the slope of (in - out) is the clock drift */
-	static unsigned long long next_report = 441000;
+	static unsigned long long next_report = 0;
+
+	if ( next_report == 0 )
+	{
+		next_report = 10ULL * stream_rate;
+	}
 
 	if ( frames_in >= next_report )
 	{
 		printf( "drift : t = %3llus   in - out = %+lld frames\n",
-			next_report / 44100, (long long)( frames_in - frames_out ) );
-		next_report += 441000;
+			next_report / stream_rate, (long long)( frames_in - frames_out ) );
+		next_report += 10ULL * stream_rate;
 	}
 
 	if ( do_exit )
@@ -325,7 +358,7 @@ static int start_iso_in( uint8_t ep )
 		libusb_fill_iso_transfer( iso_in_xfr[i], devh, ep, iso_in_buf[i],
 			sizeof( iso_in_buf[i] ), ISO_PACKETS, cb_xfr_in, NULL, 0 );
 
-		libusb_set_iso_packet_lengths( iso_in_xfr[i], ISO_IN_PKT_SZ );
+		libusb_set_iso_packet_lengths( iso_in_xfr[i], cfg->in_pkt_sz );
 
 		if ( libusb_submit_transfer( iso_in_xfr[i] ) == 0 )
 		{
@@ -692,12 +725,22 @@ SEND_AUDIO:
 		Set Sample Rate
 	*/
 
-	// if ( devh )
-	// {
-	// 	libusb_set_interface_alt_setting( devh, rc, 2 );
-	// }
+	/*
+		RME_RATE=<Hz> : the alternate setting must match the rate band, otherwise the
+		device falls back to the base rate of the current band (see controls.md).
+	*/
+	if ( getenv( "RME_RATE" ) )
+	{
+		stream_rate = atoi( getenv( "RME_RATE" ) );
+	}
 
-	hwSetSampleRate( devh, 44100 );
+	cfg = &stream_cfgs[ ( stream_rate >= 128000 ) ? 2 : ( stream_rate >= 64000 ) ? 1 : 0 ];
+
+	printf( "stream : %u Hz, alt %d, %d channels\n", stream_rate, cfg->alt, cfg->channels );
+
+	libusb_set_interface_alt_setting( devh, 0, cfg->alt );
+
+	hwSetSampleRate( devh, stream_rate );
 
 	/*
 		Check Sample Rate was correctly set
@@ -793,9 +836,9 @@ SEND_AUDIO:
 
 	int loopback = getenv( "RME_LOOPBACK" ) ? atoi( getenv( "RME_LOOPBACK" ) ) : 0;
 
-	if ( loopback > 18 )
+	if ( loopback > cfg->channels )
 	{
-		loopback = 18;
+		loopback = cfg->channels;
 	}
 	ctrl_setup lb = { 0x40, 0x15, 0x0001, 0x0000, 0x0000 };
 

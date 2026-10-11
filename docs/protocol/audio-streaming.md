@@ -8,12 +8,22 @@
 * The alternate setting must match the sample-rate range (endpoint bandwidth,
   `wMaxPacketSize`):
 
-| bAlternateSetting | Sample-rate range       | OUT / IN wMaxPacketSize |
-| ----------------- | ----------------------- | ----------------------- |
-| 0                 | idle                    | 0 / 0                   |
-| **1**             | `[32000 Hz; 64000 Hz[`  | 532 / 508               |
-| **2**             | `[64000 Hz; 128000 Hz[` | 780 / 732               |
-| **3**             | `[128000 Hz; 192000 Hz]`| 2×652 / 2×604           |
+| bAlternateSetting | Sample-rate range       | OUT / IN wMaxPacketSize | Channels | Max frames / packet |
+| ----------------- | ----------------------- | ----------------------- | -------- | ------------------- |
+| 0                 | idle                    | 0 / 0                   | —        | —                   |
+| **1**             | `[32000 Hz; 64000 Hz[`  | 532 / 508               | **18**   | 7                   |
+| **2**             | `[64000 Hz; 128000 Hz[` | 780 / 732               | **14**   | 13                  |
+| **3**             | `[128000 Hz; 192000 Hz]`| 2×652 / 2×604           | **12**   | 25                  |
+
+The sizes match exactly: playback `frames × (1 + channels) × 4` (532 = 7 × 19 × 4,
+780 = 13 × 15 × 4, 1300 ≤ 1304 = 25 × 13 × 4) and capture `4 + frames × channels × 4`
+(508, 732, 1208). The channel count drops because ADAT carries 4 channels at double
+speed and 2 at quad speed (S/MUX): 8 analog + 2 S/PDIF + 8 / 4 / 2 ADAT.
+
+**Verified on hardware** (firmware 138) at 44.1, 96 and 192 kHz: rate read back
+correctly, channel order identity in both directions (loopback test), typical
+capture packets of 436 (6 frames × 18), 676 (12 × 14) and 1156 (24 × 12) bytes,
+implicit feedback without drift.
 
 > **Changing the alternate setting is mandatory when changing rate group.**
 > Otherwise the rate falls back to the multiple of the current group: e.g. on alt 1 at
@@ -139,9 +149,9 @@ noise floor. Recorded with `RME_LOOPBACK=2 RME_DUMP_IN=<file>`
 
 Identical in both directions and equal to the output order of the mixer:
 
-| Channel | 1–6 | 7–8 | 9–10 | 11–18 |
-| ------- | --- | --- | ---- | ----- |
-| Output | analog 1–6 (rear) | analog 7/8 = phones (front) | S/PDIF L/R | ADAT 1–8 |
+| Channel | 1–6 | 7–8 | 9–10 | 11–18 (alt 1) / 11–14 (alt 2) / 11–12 (alt 3) |
+| ------- | --- | --- | ---- | ---------------------------------------------- |
+| Output | analog 1–6 (rear) | analog 7/8 = phones (front) | S/PDIF L/R | ADAT |
 
 Verified on hardware: with a diagonal mix (playback k → output k), output faders at
 0 dB and loopback on all 18 outputs, a sawtooth of amplitude 0.002 × k written in

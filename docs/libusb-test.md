@@ -111,6 +111,7 @@ See [audio-streaming.md](protocol/audio-streaming.md) for the format.
 
 | Variable | Effect |
 | -------- | ------ |
+| `RME_RATE=<Hz>` | Stream at this rate: selects alt 1 / 2 / 3 and 18 / 14 / 12 channels (default 44100). |
 | `RME_NO_COUNTER=1` | Send 0 instead of the frame counter (shows that the device needs it). |
 | `RME_LOOPBACK=<n>` | Enable the device loopback on outputs 1 .. n (`0x40 0x15`) during the run, disable it at the end. |
 | `RME_MIX_DIAGONAL=1` | **Overwrites the device mix**: playback k → output k at 0 dB, other playback → output cells at −∞ (`0x12`, 324 requests). |
@@ -130,7 +131,7 @@ reverse-engineered driver behaviour.
 
 ## Known limitations
 
-* Fixed 44100 Hz (alt setting 1), mono input file, 2 channels used out of 18.
+* Mono input file copied to channels 1/2 (no resampling: the file must match `RME_RATE`).
 * Capture samples are read but discarded.
 * Latency fixed by `ISO_OUT_XFERS` (4 ms), no buffering against stdin stalls.
 * No MIDI, no level meters, no settings/mixer control.

@@ -61,7 +61,8 @@ packet).
 - [x] Channel order: word / block k = output k for k = 1..18 in both directions
       (AN 1–6, phones 7/8, S/PDIF 9/10, ADAT 11–18), verified with the loopback.
 - [x] Mixer writes (`0x12`) and loopback (`0x15`) verified on hardware.
-- [ ] Alt settings 2 and 3: packet sizes and channel counts.
+- [x] Alt settings 2 and 3: **14 and 12 channels** (ADAT S/MUX), verified at 96 and
+      192 kHz ([audio-streaming.md](protocol/audio-streaming.md#transport)).
 - [ ] Minimal init sequence (`0x16` × 36, `0x10 0x0800/0xb800`, `0x20`): test with/without.
 
 ### Phase 3 — Align with the Digiface
@@ -74,7 +75,7 @@ packet).
 ### Phase 4 — `snd-usb-audio` quirk
 
 - [ ] Out-of-tree build of `sound/usb/` for the running kernel.
-- [ ] `quirks-table.h` entry: iface 0, alt 1/2/3, 18 ch out / 18 ch in, `FLOAT_LE`,
+- [ ] `quirks-table.h` entry: iface 0, alt 1/2/3 with 18 / 14 / 12 ch, `FLOAT_LE`,
       `EP 0x01` / `0x82`, implicit feedback.
 - [ ] Device-specific copy routines: playback frame counter (required) in the first
       frame of each packet; capture header skipped and planar channels re-interleaved.
