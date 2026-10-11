@@ -55,8 +55,9 @@ packet).
 - [x] **Implicit feedback** verified: mirroring capture packet sizes removes a −32 ppm
       drift and the remaining crackle — clean playback on outputs 1/2
       ([audio-streaming.md](protocol/audio-streaming.md#synchronisation-implicit-feedback-verified)).
-- [ ] Capture: position/meaning of the extra 4-byte word per packet
-      (loopback test with a known signal).
+- [x] Capture layout: 4-byte header (timestamp, 1/32 frame units) + **planar**
+      channels (verified with the hardware loopback,
+      [audio-streaming.md](protocol/audio-streaming.md#packet-layout-header--planar-channels-verified)).
 - [ ] Full channel order (outputs 3–18, inputs).
 - [ ] Alt settings 2 and 3: packet sizes and channel counts.
 - [ ] Minimal init sequence (`0x16` × 36, `0x10 0x0800/0xb800`, `0x20`): test with/without.
@@ -73,8 +74,8 @@ packet).
 - [ ] Out-of-tree build of `sound/usb/` for the running kernel.
 - [ ] `quirks-table.h` entry: iface 0, alt 1/2/3, 18 ch out / 18 ch in, `FLOAT_LE`,
       `EP 0x01` / `0x82`, implicit feedback.
-- [ ] Write the playback frame counter (required) in the first frame of each packet,
-      and strip the capture extra word.
+- [ ] Device-specific copy routines: playback frame counter (required) in the first
+      frame of each packet; capture header skipped and planar channels re-interleaved.
 - [ ] Rate setting (`0x1b` / `0x10`).
 - [ ] Basic mixer controls: clock source, sync status, rates, levels, digital formats
       ([settings.md](protocol/settings.md)).

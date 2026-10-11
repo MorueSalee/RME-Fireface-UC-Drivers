@@ -54,6 +54,10 @@ static unsigned long long frames_in  = 0;	/* frames received on EP 0x82  */
 
 uint32_t unkId = 0x16;
 static int no_counter = 0;	/* RME_NO_COUNTER=1 : send 0 instead of the frame counter (test) */
+static FILE *dump_in = NULL;	/* RME_DUMP_IN=<file> : raw capture packets (test) */
+static unsigned long dumped_in = 0;
+#define DUMP_IN_SKIP	88200	/* start dumping after 2 s */
+#define DUMP_IN_PACKETS	4000	/* 0.5 s of capture packets */
 
 
 
@@ -254,6 +258,16 @@ static void cb_xfr_in( struct libusb_transfer *xfr )
 		{
 			frames_in += ( d->actual_length - 4 ) / 72;
 			fb_push( ( d->actual_length - 4 ) / 72 );
+
+			/* record : uint16 length, then the packet bytes */
+			if ( dump_in && frames_in > DUMP_IN_SKIP && dumped_in < DUMP_IN_PACKETS )
+			{
+				uint16_t len = d->actual_length;
+
+				fwrite( &len, sizeof( len ), 1, dump_in );
+				fwrite( libusb_get_iso_packet_buffer_simple( xfr, p ), 1, len, dump_in );
+				dumped_in++;
+			}
 		}
 	}
 
@@ -718,6 +732,27 @@ SEND_AUDIO:
 
 	no_counter = ( getenv( "RME_NO_COUNTER" ) != NULL );
 
+	if ( getenv( "RME_DUMP_IN" ) )
+	{
+		dump_in = fopen( getenv( "RME_DUMP_IN" ), "wb" );
+	}
+
+	/*
+		Loopback on outputs 1 / 2 (0x40 0x15 wValue 1 wIndex 0 / 1, as the official
+		driver numbers outputs 0-17) : the device feeds what it plays back to the
+		matching capture channels.
+	*/
+	int loopback = ( getenv( "RME_LOOPBACK" ) != NULL );
+	ctrl_setup lb = { 0x40, 0x15, 0x0001, 0x0000, 0x0000 };
+
+	if ( loopback )
+	{
+		for ( lb.wIndex = 0; lb.wIndex < 2; lb.wIndex++ )
+		{
+			send_ctrl_setup( devh, &lb, NULL );
+		}
+	}
+
 	if ( no_counter )
 	{
 		printf( "frame counter disabled (RME_NO_COUNTER)\n" );
@@ -752,6 +787,22 @@ SEND_AUDIO:
 	for ( int i = 0; i < ISO_IN_XFERS; i++ )
 	{
 		libusb_free_transfer( iso_in_xfr[i] );
+	}
+
+	if ( loopback )
+	{
+		lb.wValue = 0x0000;
+
+		for ( lb.wIndex = 0; lb.wIndex < 2; lb.wIndex++ )
+		{
+			send_ctrl_setup( devh, &lb, NULL );
+		}
+	}
+
+	if ( dump_in )
+	{
+		fclose( dump_in );
+		printf( "dumped %lu capture packets\n", dumped_in );
 	}
 
 	printf( "feedback : %lu playback packets built without a capture packet to mirror\n", fb_misses );

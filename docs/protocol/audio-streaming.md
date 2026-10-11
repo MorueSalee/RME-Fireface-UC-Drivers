@@ -110,21 +110,48 @@ probably re-synchronisations; not needed so far with implicit feedback.
 
 ## Capture (device → host, `EP 0x82`)
 
-Observed at 44.1 kHz in `play_music_pb_1-2_out_1-2.pcapng`:
-
 * The host submits 8 packets of the full `wMaxPacketSize` (508 bytes on alt 1);
-  the device returns packets of **436 / 364 bytes**, alternating like playback.
-* `436 = 4 + 6 × 72`, `364 = 4 + 5 × 72`: 6 or 5 frames of **18 channels × 4 bytes**
-  (no per-frame extra word, unlike playback) plus **one 4-byte word per packet**.
-* Samples are **float32** too (noise floor values such as `0x35600000` ≈ 8e-7).
-* The position and meaning of the extra word are **not determined yet**: some
-  packets carry values that look like a timestamp (`0x21aac266`, `0x316ac7e6`,
-  `0x414acd66`, step `0x0fc00580`) and others look like samples. Needs a known
-  signal on an input (hardware loopback test).
-* The first packets after start are 4 bytes long (word only, no frames).
+  the device returns packets of **436 / 364 bytes** at 44.1 kHz (6 / 5 frames).
+* Samples are **float32**.
+* The first packets after start are 4 bytes long (header only, no frames).
 
-The size of each received packet (5 or 6 frames) is what the host must mirror on
-playback → **implicit feedback**.
+### Packet layout: header + **planar** channels (verified)
+
+Unlike playback, capture samples are **grouped per channel**, not interleaved per
+frame. For a packet of `n` frames (`length = 4 + 18 × n × 4`):
+
+```
+word 0                header (timestamp, see below)
+words 1 .. n          channel 1, frames 0 .. n-1
+words n+1 .. 2n       channel 2, frames 0 .. n-1
+...
+words 17n+1 .. 18n    channel 18
+```
+
+Verified on hardware (firmware 138) with the device's **loopback** on outputs 1/2
+(`0x40 0x15 0x0001 0x0000` / `0x0001`) and a known sawtooth played on both channels:
+in all 4000 recorded packets, words `1..n` and `n+1..2n` hold the same ramp
+(+0.0005 per frame, continuous across packets); the other channels carry the input
+noise floor. Recorded with `RME_LOOPBACK=1 RME_DUMP_IN=<file>`
+(see [libusb-test.md](../libusb-test.md#test-switches)).
+
+### Header word
+
+* **Bits 0–15**: a timestamp in **1/32 frame** units, sampled at each microframe:
+  it grows by 161 after a 5-frame packet and by 191/192 after a 6-frame packet,
+  i.e. 352 per 11 frames = 32 per frame.
+* **Bits 16–31**: unknown (not a counter; values look unrelated between packets).
+
+Neither is needed for playback: implicit feedback only uses the packet sizes.
+
+### Consequence for a `snd-usb-audio` quirk
+
+The generic code expects interleaved frames in both directions. The UC needs two
+device-specific copy routines:
+
+* **playback**: interleaved 19-word frames, with the frame counter (modulo 8192)
+  in word 0 of the first frame of each packet;
+* **capture**: skip the 4-byte header and re-interleave the 18 planar channel blocks.
 
 ## Analysis tools
 
