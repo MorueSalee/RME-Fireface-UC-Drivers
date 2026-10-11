@@ -22,7 +22,30 @@ static int do_exit = 0;
 static struct libusb_device_handle *devh = NULL;
 
 static unsigned long /*num_bytes = 0,*/ num_xfer = 0;
-static struct timeval tv_start;
+
+#define ISO_PACKETS	8	/* 1 ms of audio per transfer (8 microframes) */
+#define ISO_OUT_XFERS	4	/* transfers queued ahead : ~4 ms of latency */
+
+static struct libusb_transfer *iso_out_xfr[ISO_OUT_XFERS];
+static uint32_t iso_out_buf[ISO_OUT_XFERS][855];	/* 3420 bytes max */
+static int iso_out_in_flight = 0;
+
+static int fill_iso_out( struct libusb_transfer *xfr );
+
+/*
+	Capture stream, read only to measure the device clock against the playback
+	stream (implicit feedback study). 1 ms per transfer, max packet size of alt 1.
+*/
+#define EP_ISO_IN	0x82
+#define ISO_IN_XFERS	4
+#define ISO_IN_PKT_SZ	508
+
+static struct libusb_transfer *iso_in_xfr[ISO_IN_XFERS];
+static uint8_t iso_in_buf[ISO_IN_XFERS][ISO_PACKETS * ISO_IN_PKT_SZ];
+static int iso_in_in_flight = 0;
+
+static unsigned long long frames_out = 0;	/* frames submitted on EP 0x01 */
+static unsigned long long frames_in  = 0;	/* frames received on EP 0x82  */
 
 
 
@@ -41,6 +64,23 @@ static void cb_xfr( struct libusb_transfer *xfr )
 	}
 
 	num_xfer++;
+	iso_out_in_flight--;
+
+	if ( do_exit )
+	{
+		return;
+	}
+
+	if ( fill_iso_out( xfr ) != 0 )
+	{
+		do_exit = 1;
+		return;
+	}
+
+	if ( libusb_submit_transfer( xfr ) == 0 )
+	{
+		iso_out_in_flight++;
+	}
 }
 
 
@@ -57,15 +97,15 @@ void fill_audio_data( uint32_t *buf, size_t buf_sz, uint32_t *pcm, struct libusb
 
 	uint32_t i = 0, x = 0, z = 0, ckCnt = 0 /*, y = 0, offset = 0*/;
 
-	if ( unkId > 0xffff )
-	{
-		unkId = 0x16;
-	}
-
 	while ( i < (buf_sz/4) )
 	{
 
-		buf[i+0] = unkId;
+		/*
+			Frame counter, modulo 8192 like the official driver
+			(cap/play/play_music_pb_1-2_out_1-2.pcapng : 0x200f + 5 -> 0x0014).
+			Wrapping elsewhere makes the position jump every 65536 frames (~1.5 s).
+		*/
+		buf[i+0] = unkId & 0x1fff;
 
 
 		if ( buf_sz == 3420 && ckCnt == 1 )
@@ -140,14 +180,14 @@ void fill_audio_data( uint32_t *buf, size_t buf_sz, uint32_t *pcm, struct libusb
 
 
 
-static int send_iso_out( uint8_t ep )
+/*
+	Fills one ISO OUT transfer with the next millisecond of audio read on stdin.
+	Returns 1 on EOF, 0 otherwise.
+*/
+static int fill_iso_out( struct libusb_transfer *xfr )
 {
-
-	uint32_t buf[855];
+	uint32_t *buf = (uint32_t *)xfr->buffer;
 	uint32_t pcm[45];
-
-	static struct libusb_transfer *xfr;
-	int num_iso_pack = 0;
 
 	int buf_len = 0;
 	int pcm_len = 0;
@@ -165,79 +205,133 @@ static int send_iso_out( uint8_t ep )
 		smallTxCount++;
 	}
 
-
-//	int chunkCount = 0;
-//	int i = 0;
-//	int y = 0;
-
-	num_iso_pack = 8;
-
-	xfr = libusb_alloc_transfer( num_iso_pack );
-
-	if ( !xfr )
-	{
-		return -ENOMEM;
-	}
-
-	libusb_fill_iso_transfer( xfr, devh, ep, (unsigned char *)buf,
-		buf_len, num_iso_pack, cb_xfr, NULL, 0 );
-
-	xfr->flags = LIBUSB_TRANSFER_FREE_TRANSFER;
-
 	memset( (unsigned char *)pcm, 0, pcm_len );
 	memset( (unsigned char *)buf, 0, buf_len );
 
-
-	// uint32_t *audioData = NULL;
-
-	// size_t audioDataSize = get_audio_data_from_file( "../1CH_44100_f32le_RIFF.raw", &audioData );
-
-
-    //
 	if ( read( 0, pcm, pcm_len ) == 0 )
 	{
 		printf( "*** EOF ***\n" );
-		do_exit = 1;
 		return 1;
 	}
 
-/*
-	int i = 0;
-	while ( i < buf_len/4 ) {
-		printf("0x%04x  0x%04x  0x%04x  0x%04x  0x%04x  0x%04x  0x%04x  0x%04x\n",
-			buf[i++], buf[i++], buf[i++], buf[i++], buf[i++], buf[i++], buf[i++], buf[i++]);
-//		i++;
-	}
-
-//	return -1;
-	exit(1);
-*/
-//	printf("buf_len : %d\n", buf_len);
-
+	xfr->length = buf_len;
+	frames_out += buf_len / 76;
 
 	fill_audio_data( buf, buf_len, pcm, xfr );
-
-	gettimeofday( &tv_start, NULL );
-
-	/* NOTE: To reach maximum possible performance the program must
-	 * submit *multiple* transfers here, not just one.
-	 *
-	 * When only one transfer is submitted there is a gap in the bus
-	 * schedule from when the transfer completes until a new transfer
-	 * is submitted by the callback. This causes some jitter for
-	 * isochronous transfers and loss of throughput for bulk transfers.
-	 *
-	 * This is avoided by queueing multiple transfers in advance, so
-	 * that the host controller is always kept busy, and will schedule
-	 * more transfers on the bus while the callback is running for
-	 * transfers which have completed on the bus.
-	 */
-
-	libusb_submit_transfer( xfr );
 
 	return 0;
 }
 
+
+
+/*
+	Capture packets are 4 bytes + n frames of 18 channels (72 bytes),
+	see docs/protocol/audio-streaming.md.
+*/
+static void cb_xfr_in( struct libusb_transfer *xfr )
+{
+	int p = 0;
+
+	iso_in_in_flight--;
+
+	for ( p = 0; p < xfr->num_iso_packets; p++ )
+	{
+		struct libusb_iso_packet_descriptor *d = &xfr->iso_packet_desc[p];
+
+		if ( d->status == LIBUSB_TRANSFER_COMPLETED && d->actual_length >= 4 )
+		{
+			frames_in += ( d->actual_length - 4 ) / 72;
+		}
+	}
+
+	/* every 10 s of capture : the slope of (in - out) is the clock drift */
+	static unsigned long long next_report = 441000;
+
+	if ( frames_in >= next_report )
+	{
+		printf( "drift : t = %3llus   in - out = %+lld frames\n",
+			next_report / 44100, (long long)( frames_in - frames_out ) );
+		next_report += 441000;
+	}
+
+	if ( do_exit )
+	{
+		return;
+	}
+
+	if ( libusb_submit_transfer( xfr ) == 0 )
+	{
+		iso_in_in_flight++;
+	}
+}
+
+
+
+static int start_iso_in( uint8_t ep )
+{
+	int i = 0;
+
+	for ( i = 0; i < ISO_IN_XFERS; i++ )
+	{
+		iso_in_xfr[i] = libusb_alloc_transfer( ISO_PACKETS );
+
+		if ( !iso_in_xfr[i] )
+		{
+			return -ENOMEM;
+		}
+
+		libusb_fill_iso_transfer( iso_in_xfr[i], devh, ep, iso_in_buf[i],
+			sizeof( iso_in_buf[i] ), ISO_PACKETS, cb_xfr_in, NULL, 0 );
+
+		libusb_set_iso_packet_lengths( iso_in_xfr[i], ISO_IN_PKT_SZ );
+
+		if ( libusb_submit_transfer( iso_in_xfr[i] ) == 0 )
+		{
+			iso_in_in_flight++;
+		}
+	}
+
+	return 0;
+}
+
+
+
+/*
+	Keeps ISO_OUT_XFERS transfers queued, so that the host controller always has
+	audio scheduled ahead while a completed transfer is being refilled
+	(see cb_xfr()). A single transfer in flight leaves gaps in the bus schedule,
+	heard as clicks.
+*/
+static int send_iso_out( uint8_t ep )
+{
+	int i = 0;
+
+	for ( i = 0; i < ISO_OUT_XFERS; i++ )
+	{
+		iso_out_xfr[i] = libusb_alloc_transfer( ISO_PACKETS );
+
+		if ( !iso_out_xfr[i] )
+		{
+			return -ENOMEM;
+		}
+
+		libusb_fill_iso_transfer( iso_out_xfr[i], devh, ep, (unsigned char *)iso_out_buf[i],
+			sizeof( iso_out_buf[i] ), ISO_PACKETS, cb_xfr, NULL, 0 );
+
+		if ( fill_iso_out( iso_out_xfr[i] ) != 0 )
+		{
+			do_exit = 1;	/* EOF : also stops the capture stream */
+			break;
+		}
+
+		if ( libusb_submit_transfer( iso_out_xfr[i] ) == 0 )
+		{
+			iso_out_in_flight++;
+		}
+	}
+
+	return 0;
+}
 
 
 
@@ -609,43 +703,40 @@ SEND_AUDIO:
 
 	// int loop_cnt = 0;
 
-	struct timeval timeout;
-	struct timeval tv_mes;
+	start_iso_in( EP_ISO_IN );
 
+	rc = send_iso_out( EP_ISO_OUT );
 
-	while ( !do_exit )
+	/* transfers are refilled and resubmitted from cb_xfr() until EOF or SIGINT */
+	while ( iso_out_in_flight > 0 || iso_in_in_flight > 0 )
 	{
-		timeout.tv_sec = 0;
-		timeout.tv_usec = 0;
+		rc = libusb_handle_events( NULL );
 
-
-		rc = send_iso_out( 0x01 );
-
-		if ( rc != 0 )	/* EOF or allocation error : nothing was submitted */
+		if ( rc == LIBUSB_ERROR_INTERRUPTED )	/* SIGINT : stop refilling, let queued transfers drain */
 		{
-			rc = 0;
-			break;
+			do_exit = 1;
+			rc = LIBUSB_SUCCESS;
 		}
-
-		gettimeofday( &tv_mes, NULL );
-		timeout.tv_usec = 1000 - (tv_mes.tv_usec - tv_start.tv_usec);
-
-		/* is playing the role of pause ?? */
-
-		rc = libusb_handle_events_timeout_completed( NULL, &timeout, NULL );
 
 		if ( rc != LIBUSB_SUCCESS )
 		{
-			printf( "LIBUSB ERROR (%d) : %s\n", rc, libusb_error_name( rc ) );
 			break;
 		}
 	}
 
-	/* let the last submitted transfer complete, without blocking when none is pending */
-	timeout.tv_sec = 0;
-	timeout.tv_usec = 100000;
+	for ( int i = 0; i < ISO_OUT_XFERS; i++ )
+	{
+		libusb_free_transfer( iso_out_xfr[i] );
+	}
 
-	rc = libusb_handle_events_timeout_completed( NULL, &timeout, NULL );
+	for ( int i = 0; i < ISO_IN_XFERS; i++ )
+	{
+		libusb_free_transfer( iso_in_xfr[i] );
+	}
+
+	printf( "frames out : %llu   frames in : %llu   in - out : %lld (%.1f ppm)\n",
+		frames_out, frames_in, (long long)( frames_in - frames_out ),
+		frames_out ? 1e6 * ( (double)frames_in - (double)frames_out ) / (double)frames_out : 0.0 );
 
 	if ( rc != LIBUSB_SUCCESS )
 	{
