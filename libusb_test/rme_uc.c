@@ -26,8 +26,11 @@ static unsigned long /*num_bytes = 0,*/ num_xfer = 0;
 #define ISO_PACKETS	8	/* 1 ms of audio per transfer (8 microframes) */
 #define ISO_OUT_XFERS	4	/* transfers queued ahead : ~4 ms of latency */
 
+#define FRAME_WORDS	19	/* frame counter (or 0) + 18 channels, float32 */
+#define MAX_PKT_FRAMES	7	/* wMaxPacketSize of alt 1 : 532 bytes = 7 frames */
+
 static struct libusb_transfer *iso_out_xfr[ISO_OUT_XFERS];
-static uint32_t iso_out_buf[ISO_OUT_XFERS][855];	/* 3420 bytes max */
+static uint32_t iso_out_buf[ISO_OUT_XFERS][ISO_PACKETS * MAX_PKT_FRAMES * FRAME_WORDS];
 static int iso_out_in_flight = 0;
 
 static int fill_iso_out( struct libusb_transfer *xfr );
@@ -49,9 +52,59 @@ static unsigned long long frames_in  = 0;	/* frames received on EP 0x82  */
 
 
 
-int tx_rate = 1000;	// per sec rate
-int smallTxCount = 0;	// last ten count
 uint32_t unkId = 0x16;
+
+
+
+/*
+	Implicit feedback : the device has no feedback endpoint, its capture stream
+	is the clock reference. Each capture packet tells how many frames the device
+	produced during that microframe (5 or 6 at 44.1 kHz); each playback packet must
+	carry the same number of frames, otherwise the device buffer drifts
+	(measured : ~32 ppm, heard as crackles).
+
+	cb_xfr_in() pushes the frame count of every capture packet here,
+	next_out_packet_frames() pops them when building playback packets.
+*/
+#define FB_FIFO_SZ	256	/* power of 2 */
+
+static uint8_t  fb_fifo[FB_FIFO_SZ];
+static uint32_t fb_head = 0;	/* written by cb_xfr_in() */
+static uint32_t fb_tail = 0;	/* read by fill_iso_out() */
+static uint8_t  fb_last = 5;
+static unsigned long fb_misses = 0;
+
+
+
+static void fb_push( uint8_t frames )
+{
+	if ( fb_head - fb_tail < FB_FIFO_SZ )
+	{
+		fb_fifo[fb_head++ % FB_FIFO_SZ] = frames;
+	}
+}
+
+
+
+/*
+	Frames to put in the next playback packet : the size of the oldest unused
+	capture packet. Until the capture stream delivers its first packets (start-up),
+	or if a capture transfer was lost, fall back to the 5 / 6 alternation, which
+	keeps the nominal rate without inventing a drift of its own.
+*/
+static uint8_t next_out_packet_frames( void )
+{
+	if ( fb_head != fb_tail )
+	{
+		fb_last = fb_fifo[fb_tail++ % FB_FIFO_SZ];
+		return fb_last;
+	}
+
+	fb_misses++;
+	fb_last = ( fb_last == 5 ) ? 6 : 5;
+
+	return fb_last;
+}
 
 
 
@@ -85,139 +138,97 @@ static void cb_xfr( struct libusb_transfer *xfr )
 
 
 
+/*
+	Reads exactly len bytes from stdin (a pipe may return less).
+	Returns the number of bytes read, less than len only on EOF.
+*/
+static size_t read_full( void *dst, size_t len )
+{
+	size_t done = 0;
 
-void proc_sample( uint32_t *buf, uint32_t *pcm ) {
-//	*buf = le2be( *pcm );
-	*buf = *pcm;
-}
-
-
-
-void fill_audio_data( uint32_t *buf, size_t buf_sz, uint32_t *pcm, struct libusb_transfer *xfr ) {
-
-	uint32_t i = 0, x = 0, z = 0, ckCnt = 0 /*, y = 0, offset = 0*/;
-
-	while ( i < (buf_sz/4) )
+	while ( done < len )
 	{
+		ssize_t n = read( 0, (uint8_t *)dst + done, len - done );
 
-		/*
-			Frame counter, modulo 8192 like the official driver
-			(cap/play/play_music_pb_1-2_out_1-2.pcapng : 0x200f + 5 -> 0x0014).
-			Wrapping elsewhere makes the position jump every 65536 frames (~1.5 s).
-		*/
-		buf[i+0] = unkId & 0x1fff;
-
-
-		if ( buf_sz == 3420 && ckCnt == 1 )
+		if ( n <= 0 )
 		{
-
-			for ( x=1; x < (6 * 19); x+=19 )
-			{
-				proc_sample( &buf[i+x],   &pcm[z] );
-				proc_sample( &buf[i+x+1], &pcm[z] );
-				z++;
-//				buf[i+x] = pcm[z++];// << 0x16;
-//				buf[i+x+1] = pcm[z++];// << 0x16;
-			}
-
-			i += x-1;
-
-			xfr->iso_packet_desc[ckCnt].length = 0x01c8;
-			unkId += 6;
-
-			ckCnt++;
-
+			break;
 		}
-		else if ( ckCnt % 2 )
-		{
 
-			for ( x=1; x < (5 * 19); x+=19 )
-			{
-//				proc_sample();
-//				proc_sample( &buf[i+x], &pcm[z++] );
-				proc_sample( &buf[i+x],   &pcm[z] );
-				proc_sample( &buf[i+x+1], &pcm[z] );
-				z++;
-
-//				buf[i+x] = pcm[z++];// << 0x16;
-//				buf[i+x+1] = pcm[z++];// << 0x16;
-			}
-
-			i += x-1;
-
-			xfr->iso_packet_desc[ckCnt].length = 0x017c;
-			unkId += 5;
-
-			ckCnt++;
-
-		}
-		else
-		{
-
-			for ( x=1; x < (6 * 19 ); x+=19 )
-			{
-//				proc_sample( &buf[i+x], &pcm[z++] );
-				proc_sample( &buf[i+x],   &pcm[z] );
-				proc_sample( &buf[i+x+1], &pcm[z] );
-				z++;
-
-//				buf[i+x] = pcm[z++];// << 0x16;
-//				buf[i+x+1] = pcm[z++];// << 0x16;
-			}
-
-			i += x-1;
-
-			xfr->iso_packet_desc[ckCnt].length = 0x01c8;
-			unkId += 6;
-
-			ckCnt++;
-		}
-//		printf("new iso %d\n", ckCnt);
+		done += n;
 	}
+
+	return done;
 }
-
-
 
 
 
 /*
-	Fills one ISO OUT transfer with the next millisecond of audio read on stdin.
+	Fills one ISO OUT transfer (8 packets, one per microframe) with the next
+	audio read on stdin : mono f32le, copied to channels 1 and 2.
+
+	Frame layout (19 words) : word 0 is the frame counter in the first frame of
+	each packet and 0 in the others, words 1-18 are the channels.
+
 	Returns 1 on EOF, 0 otherwise.
 */
 static int fill_iso_out( struct libusb_transfer *xfr )
 {
 	uint32_t *buf = (uint32_t *)xfr->buffer;
-	uint32_t pcm[45];
+	uint32_t pcm[ISO_PACKETS * MAX_PKT_FRAMES];
+	uint8_t  frames[ISO_PACKETS];
 
-	int buf_len = 0;
-	int pcm_len = 0;
+	int p = 0, f = 0, total = 0, z = 0;
 
-	if ( smallTxCount == 9 )
+	for ( p = 0; p < ISO_PACKETS; p++ )
 	{
-		buf_len = 3420;
-		pcm_len = 180;
-		smallTxCount  = 0;
-	}
-	else
-	{
-		buf_len = 3344;
-		pcm_len = 176;
-		smallTxCount++;
+		frames[p] = next_out_packet_frames();
+
+		if ( frames[p] > MAX_PKT_FRAMES )
+		{
+			frames[p] = MAX_PKT_FRAMES;
+		}
+
+		total += frames[p];
 	}
 
-	memset( (unsigned char *)pcm, 0, pcm_len );
-	memset( (unsigned char *)buf, 0, buf_len );
+	memset( pcm, 0, sizeof( pcm ) );
+	memset( buf, 0, total * FRAME_WORDS * 4 );
 
-	if ( read( 0, pcm, pcm_len ) == 0 )
+	if ( total > 0 && read_full( pcm, total * 4 ) == 0 )
 	{
 		printf( "*** EOF ***\n" );
 		return 1;
 	}
 
-	xfr->length = buf_len;
-	frames_out += buf_len / 76;
+	for ( p = 0; p < ISO_PACKETS; p++ )
+	{
+		for ( f = 0; f < frames[p]; f++ )
+		{
+			uint32_t *frame = buf + ( z * FRAME_WORDS );
 
-	fill_audio_data( buf, buf_len, pcm, xfr );
+			/*
+				Frame counter, modulo 8192 like the official driver
+				(cap/play/play_music_pb_1-2_out_1-2.pcapng : 0x200f + 5 -> 0x0014).
+				Wrapping elsewhere makes the position jump every 65536 frames (~1.5 s).
+			*/
+			if ( f == 0 )
+			{
+				frame[0] = unkId & 0x1fff;
+			}
+
+			frame[1] = pcm[z];
+			frame[2] = pcm[z];
+
+			z++;
+		}
+
+		xfr->iso_packet_desc[p].length = frames[p] * FRAME_WORDS * 4;
+		unkId += frames[p];
+	}
+
+	xfr->length = total * FRAME_WORDS * 4;
+	frames_out += total;
 
 	return 0;
 }
@@ -241,6 +252,7 @@ static void cb_xfr_in( struct libusb_transfer *xfr )
 		if ( d->status == LIBUSB_TRANSFER_COMPLETED && d->actual_length >= 4 )
 		{
 			frames_in += ( d->actual_length - 4 ) / 72;
+			fb_push( ( d->actual_length - 4 ) / 72 );
 		}
 	}
 
@@ -733,6 +745,8 @@ SEND_AUDIO:
 	{
 		libusb_free_transfer( iso_in_xfr[i] );
 	}
+
+	printf( "feedback : %lu playback packets built without a capture packet to mirror\n", fb_misses );
 
 	printf( "frames out : %llu   frames in : %llu   in - out : %lld (%.1f ppm)\n",
 		frames_out, frames_in, (long long)( frames_in - frames_out ),

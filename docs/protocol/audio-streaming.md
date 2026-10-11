@@ -91,9 +91,16 @@ len 456 (6 frames)  word0 = 0x162b   (+5)
 len 380 (5 frames)  word0 = 0x1631   (+6)
 ```
 
-The prototype ([`fill_audio_data()`](../../libusb_test/rme_uc.c)) writes it in every
-frame (`unkId`, starting at `0x16`, wrapping after `0xffff`). Whether the device
-requires it at all is still to be tested on hardware.
+**It counts modulo 8192** (`0x200f + 5 → 0x0014`, `0x2018 + 6 → 0x001e` in the same
+capture), which suggests a write position in an 8192-frame ring buffer on the device.
+
+Verified on hardware (firmware 138): with a counter wrapping at `0xffff` instead,
+the position jumps every 65536 frames and an audible click occurs every ~1.49 s,
+always at the same place in the music. Wrapping modulo 8192 removes it. The
+prototype ([`fill_iso_out()`](../../libusb_test/rme_uc.c)) now does so.
+
+The official driver also makes occasional deliberate jumps (`0x175 + 2 → 0x459`),
+probably re-synchronisations; not needed so far with implicit feedback.
 
 ## Capture (device → host, `EP 0x82`)
 
@@ -124,11 +131,23 @@ python3 tools/usbmon_ctl.py cap/set_sample_rate_96000Hz.pcapng 0x1b,0x10
 python3 tools/usbmon_iso.py cap/play/play_square_22050Hz_pb_1.pcapng 0x01 S 5
 ```
 
-## Synchronisation
+## Synchronisation: implicit feedback (verified)
 
-Host/device synchronisation is very likely based on **implicit feedback**
-(USB 2.0 spec, §5.12.4.3 *Implicit Feedback*), using the device → host stream
-(audio inputs) as the clock reference.
+`EP 0x01` has no feedback endpoint (*Synch Type None*): synchronisation uses
+**implicit feedback** (USB 2.0 spec, §5.12.4.3), the capture stream being the clock
+reference. **Each playback packet must carry as many frames as a capture packet
+received from the device.**
+
+Measured with the prototype on firmware 138, 44.1 kHz:
+
+| Playback packet sizes | `frames in − frames out`, every 10 s | Result |
+| --------------------- | ------------------------------------ | ------ |
+| Fixed 44 / 45 pattern (USB bus clock) | −201, −215, −229, … (−14 frames / 10 s) | device clock **−32 ppm**: its buffer overflows, audible crackle at random times |
+| Mirrored from capture packets | −176, −176, −176, … (constant = 4 queued transfers) | no drift, **clean sound** |
+
+The capture stream must therefore always run during playback, even when nothing is
+recorded. `snd-usb-audio` supports this mode (`implicit_fb = 1`, as for the
+Digiface USB).
 
 Relevant functions in `FirefaceUSB.kext` (see [`asm/FirefaceUSB.asm`](../../asm/FirefaceUSB.asm)):
 

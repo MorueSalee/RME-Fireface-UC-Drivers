@@ -60,6 +60,19 @@ A dry run that exercises all control requests without sending audio:
 `hwGetRate()` returns 44100 Hz and the device accepts `hwSetSampleRate(44100)`
 and mute / unmute. The whole control protocol of firmware v118 works unchanged.
 
+## Playback quality on hardware
+
+| Version | Heard on outputs 1/2 |
+| ------- | -------------------- |
+| 1 transfer in flight, counter wrapping at `0xffff` | music OK, light clicks + occasional high crackle, always at the same places |
+| 4 transfers queued | clicks lighter |
+| + counter modulo 8192 | clicks gone, crackle remains at random places |
+| + implicit feedback | **clean** |
+
+At the end of a run the prototype prints the feedback statistics and the
+`in − out` frame balance; every 10 s it prints the current balance (constant when
+synchronised).
+
 ## What `main()` does
 
 1. `libusb_open_device_with_vid_pid(0x0424, 0x3fc6)`, claim interface 0, select
@@ -80,15 +93,19 @@ and mute / unmute. The whole control protocol of firmware v118 works unchanged.
 
 ## Building the ISO transfers
 
-`send_iso_out()` allocates one transfer of **8 ISO packets**:
+* **Playback** (`EP 0x01`): 4 transfers of **8 ISO packets** (1 ms each) stay queued;
+  `cb_xfr()` refills and resubmits each one as it completes (`fill_iso_out()`).
+* **Capture** (`EP 0x82`): 4 transfers of 8 × 508 bytes stay queued (`start_iso_in()`,
+  `cb_xfr_in()`); the samples are not used, only the **frame count of each packet**
+  (`(length − 4) / 72`), pushed into a FIFO.
+* **Implicit feedback**: each playback packet takes the size of the oldest unused
+  capture packet (`next_out_packet_frames()`); until the first capture packets arrive
+  it falls back to a 5 / 6 alternation.
+* Each frame = 19 × 32-bit words: word 0 is the frame counter (modulo 8192) in the
+  first frame of each packet and 0 in the others, words 1–18 are the channels.
+* The mono input sample is copied to channels 1 **and** 2.
 
-* 9 transfers out of 10: 3344 bytes (44 frames); every 10th: 3420 bytes (45 frames);
-* packets alternate 456 B (`0x01c8`, 6 frames) and 380 B (`0x017c`, 5 frames);
-* each frame = 19 × 32-bit words: word 0 is a counter (`unkId`, starts at `0x16`,
-  +5/+6 per packet, wraps after `0xffff`), words 1–18 are the channels;
-* the mono input sample is copied to channels 1 **and** 2.
-
-See [audio-streaming.md](protocol/audio-streaming.md) for the observed format.
+See [audio-streaming.md](protocol/audio-streaming.md) for the format.
 
 ## Tracing
 
@@ -102,8 +119,7 @@ reverse-engineered driver behaviour.
 
 ## Known limitations
 
-* Only **one** ISO transfer is in flight at a time → gaps in the bus schedule and
-  jitter (see the NOTE in `send_iso_out()`); several transfers should be queued.
-* No capture (IN) stream, no feedback/synchronisation handling.
-* Fixed 44100 Hz, 2 channels used out of 18.
+* Fixed 44100 Hz (alt setting 1), mono input file, 2 channels used out of 18.
+* Capture samples are read but discarded.
+* Latency fixed by `ISO_OUT_XFERS` (4 ms), no buffering against stdin stalls.
 * No MIDI, no level meters, no settings/mixer control.

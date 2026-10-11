@@ -42,14 +42,18 @@ packet).
       captures ([mixer-routing.md](protocol/mixer-routing.md#verification)).
 - [x] Sample-rate docs: second packet is `0x10 (family << 4) 0x0030`; speed multiple
       selected only by the alt setting ([controls.md](protocol/controls.md#set-sample-rate)).
-- [ ] Prototype: queue several ISO transfers, stereo input file.
+- [x] Prototype: queue several ISO transfers (4 × 1 ms).
+- [ ] Prototype: stereo input file.
 
 ### Phase 2 — Audio unknowns (needs hardware)
 
 - [x] Sample format: **float32** (verified on `cap/play/play_square_*`).
 - [x] Playback word 0: frame counter, first frame of each packet only.
 - [x] Playback channel 1 is word 1 of each 19-word frame.
-- [ ] Is the playback frame counter required by the device?
+- [x] Playback frame counter: **modulo 8192** (wrapping elsewhere = click every ~1.5 s).
+- [x] **Implicit feedback** verified: mirroring capture packet sizes removes a −32 ppm
+      drift and the remaining crackle — clean playback on outputs 1/2
+      ([audio-streaming.md](protocol/audio-streaming.md#synchronisation-implicit-feedback-verified)).
 - [ ] Capture: position/meaning of the extra 4-byte word per packet
       (loopback test with a known signal).
 - [ ] Full channel order (outputs 3–18, inputs).
