@@ -5,3 +5,4 @@ __pycache__/
 .idea/
 /kernel/build/
 /.superpowers/
+/kernel/tests/test_rme_uc
