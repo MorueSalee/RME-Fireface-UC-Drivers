@@ -282,7 +282,7 @@ index 9a28d7c..e776bb0 100644
  	              low_rate_, high_rate_, pack_size_,		\
  		      clock_, interface_, endpoint_)			\
 diff --git a/sound/usb/quirks.c b/sound/usb/quirks.c
-index 4d2957e..80ef6ce 100644
+index 4d2957e..d2b2c1c 100644
 --- a/sound/usb/quirks.c
 +++ b/sound/usb/quirks.c
 @@ -29,6 +29,7 @@
@@ -293,13 +293,15 @@ index 4d2957e..80ef6ce 100644
  
  /*
   * handle the quirks for the contained interfaces
-@@ -1855,6 +1856,24 @@ static int rme_digiface_set_format_quirk(struct snd_usb_substream *subs)
+@@ -1855,6 +1856,28 @@ static int rme_digiface_set_format_quirk(struct snd_usb_substream *subs)
  	return 0;
  }
  
 +/*
 + * RME Fireface UC: period of the base rate (0x1b), then rate family (0x10,
 + * mask 0x0030). The alternate setting of the rate band is already selected.
++ * The outputs may have been left muted in hardware (0x13), so unmute them
++ * (0x14) like the official driver does when a stream starts.
 + */
 +static void rme_uc_set_format_quirk(struct snd_usb_substream *subs)
 +{
@@ -313,12 +315,14 @@ index 4d2957e..80ef6ce 100644
 +			regs.period_hi, regs.period_lo, NULL, 0);
 +	snd_usb_ctl_msg(dev, usb_sndctrlpipe(dev, 0), 0x10, 0x40,
 +			regs.family, 0x0030, NULL, 0);
++	snd_usb_ctl_msg(dev, usb_sndctrlpipe(dev, 0), 0x14, 0x40,
++			0xffff, 0xc000, NULL, 0);
 +}
 +
  void snd_usb_set_format_quirk(struct snd_usb_substream *subs,
  			      const struct audioformat *fmt)
  {
-@@ -1885,6 +1904,10 @@ void snd_usb_set_format_quirk(struct snd_usb_substream *subs,
+@@ -1885,6 +1908,10 @@ void snd_usb_set_format_quirk(struct snd_usb_substream *subs,
  	case USB_ID(0x2a39, 0x3fa0): /* RME Digiface USB (alternate) */
  		rme_digiface_set_format_quirk(subs);
  		break;
@@ -329,7 +333,7 @@ index 4d2957e..80ef6ce 100644
  	}
  }
  
-@@ -2221,6 +2244,8 @@ static const struct usb_audio_quirk_flags_table quirk_flags_table[] = {
+@@ -2221,6 +2248,8 @@ static const struct usb_audio_quirk_flags_table quirk_flags_table[] = {
  		   QUIRK_FLAG_IGNORE_CTL_ERROR),
  	DEVICE_FLG(0x041e, 0x4080, /* Creative Live Cam VF0610 */
  		   QUIRK_FLAG_GET_SAMPLE_RATE),
@@ -338,7 +342,7 @@ index 4d2957e..80ef6ce 100644
  	DEVICE_FLG(0x045e, 0x083c, /* MS USB Link headset */
  		   QUIRK_FLAG_GET_SAMPLE_RATE | QUIRK_FLAG_CTL_MSG_DELAY |
  		   QUIRK_FLAG_DISABLE_AUTOSUSPEND),
-@@ -2484,6 +2509,8 @@ static const struct usb_audio_quirk_flags_table quirk_flags_table[] = {
+@@ -2484,6 +2513,8 @@ static const struct usb_audio_quirk_flags_table quirk_flags_table[] = {
  		   0), /* for avoiding QUIRK_FLAG_DSD_RAW with vendor match */
  	DEVICE_FLG(0x2912, 0x30c8, /* Audioengine D1 */
  		   QUIRK_FLAG_GET_SAMPLE_RATE),
@@ -347,7 +351,7 @@ index 4d2957e..80ef6ce 100644
  	DEVICE_FLG(0x2a70, 0x1881, /* OnePlus Technology (Shenzhen) Co., Ltd. BE02T */
  		   QUIRK_FLAG_MIXER_PLAYBACK_MIN_MUTE | QUIRK_FLAG_MIXER_CAPTURE_MIN_MUTE),
  	DEVICE_FLG(0x2b53, 0x0023, /* Fiero SC-01 (firmware v1.0.0 @ 48 kHz) */
-@@ -2641,6 +2668,7 @@ static const char *const snd_usb_audio_quirk_flag_names[] = {
+@@ -2641,6 +2672,7 @@ static const char *const snd_usb_audio_quirk_flag_names[] = {
  	QUIRK_STRING_ENTRY(MIXER_CAPTURE_LINEAR_VOL),
  	QUIRK_STRING_ENTRY(IFB_SILENCE_ON_EMPTY),
  	QUIRK_STRING_ENTRY(MIXER_GET_CUR_BROKEN),
