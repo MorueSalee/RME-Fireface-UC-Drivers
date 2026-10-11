@@ -1,7 +1,7 @@
-diff --git a/Makefile b/Makefile
+diff --git a/sound/usb/Makefile b/sound/usb/Makefile
 index e62794a..9d10eb9 100644
---- a/Makefile
-+++ b/Makefile
+--- a/sound/usb/Makefile
++++ b/sound/usb/Makefile
 @@ -20,6 +20,7 @@ snd-usb-audio-y := 	card.o \
  			power.o \
  			proc.o \
@@ -10,10 +10,179 @@ index e62794a..9d10eb9 100644
  			stream.o \
  			validate.o
  
-diff --git a/quirks-table.h b/quirks-table.h
+diff --git a/sound/usb/card.h b/sound/usb/card.h
+index 8299ac2..297a791 100644
+--- a/sound/usb/card.h
++++ b/sound/usb/card.h
+@@ -127,6 +127,7 @@ struct snd_usb_endpoint {
+ 	unsigned int syncinterval;	/* P for adaptive mode, 0 otherwise */
+ 	unsigned char silence_value;
+ 	unsigned int stride;
++	unsigned int rme_uc_counter;	/* RME Fireface UC playback frame counter */
+ 	int skip_packets;		/* quirks for devices to ignore the first n packets
+ 					   in a stream */
+ 	bool implicit_fb_sync;		/* syncs with implicit feedback */
+diff --git a/sound/usb/endpoint.c b/sound/usb/endpoint.c
+index a0ec51c..2c2d6e2 100644
+--- a/sound/usb/endpoint.c
++++ b/sound/usb/endpoint.c
+@@ -20,6 +20,7 @@
+ #include "pcm.h"
+ #include "clock.h"
+ #include "quirks.h"
++#include "rme_uc.h"
+ 
+ enum {
+ 	EP_STATE_STOPPED,
+@@ -306,8 +307,17 @@ static int prepare_silent_urb(struct snd_usb_endpoint *ep,
+ 			       &packet_length, sizeof(packet_length));
+ 			offs += extra;
+ 		}
+-		memset(urb->transfer_buffer + offs,
+-		       ep->silence_value, length);
++		if (snd_usb_is_rme_uc(ep->chip) && usb_pipeout(ep->pipe)) {
++			unsigned int frames = length / ep->stride;
++
++			rme_uc_pack_packet(urb->transfer_buffer + offs, NULL, 0,
++					   NULL, frames, ep->cur_channels,
++					   ep->rme_uc_counter);
++			ep->rme_uc_counter += frames;
++		} else {
++			memset(urb->transfer_buffer + offs,
++			       ep->silence_value, length);
++		}
+ 		offs += length;
+ 	}
+ 
+@@ -1120,6 +1130,12 @@ static int data_ep_set_params(struct snd_usb_endpoint *ep)
+ 		frame_bits += ep->cur_channels << 3;
+ 	}
+ 
++	if (snd_usb_is_rme_uc(chip) && usb_pipeout(ep->pipe)) {
++		/* a frame counter word precedes each playback frame */
++		frame_bits += 32;
++		ep->rme_uc_counter = 0;
++	}
++
+ 	ep->datainterval = fmt->datainterval;
+ 	ep->stride = frame_bits >> 3;
+ 
+@@ -1408,7 +1424,10 @@ int snd_usb_endpoint_set_params(struct snd_usb_audio *chip,
+ 		return err;
+ 
+ 	/* some unit conversions in runtime */
+-	ep->maxframesize = ep->maxpacksize / ep->cur_frame_bytes;
++	if (snd_usb_is_rme_uc(chip) && usb_pipeout(ep->pipe))
++		ep->maxframesize = ep->maxpacksize / ep->stride;
++	else
++		ep->maxframesize = ep->maxpacksize / ep->cur_frame_bytes;
+ 	ep->curframesize = ep->curpacksize / ep->cur_frame_bytes;
+ 
+ 	ep->packsize[0] = min(ep->packsize[0], ep->maxframesize);
+diff --git a/sound/usb/pcm.c b/sound/usb/pcm.c
+index 682b6c1..5c67eef 100644
+--- a/sound/usb/pcm.c
++++ b/sound/usb/pcm.c
+@@ -24,6 +24,7 @@
+ #include "power.h"
+ #include "media.h"
+ #include "implicit.h"
++#include "rme_uc.h"
+ 
+ #define SUBSTREAM_FLAG_DATA_EP_STARTED	0
+ #define SUBSTREAM_FLAG_SYNC_EP_STARTED	1
+@@ -1324,11 +1325,13 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
+ 	int i, period_elapsed = 0;
+ 	unsigned char *cp;
+ 	int current_frame_number;
++	bool rme_uc;
+ 
+ 	/* read frame number here, update pointer in critical section */
+ 	current_frame_number = usb_get_current_frame_number(subs->dev);
+ 
+ 	stride = runtime->frame_bits >> 3;
++	rme_uc = snd_usb_is_rme_uc(subs->stream->chip);
+ 
+ 	for (i = 0; i < urb->number_of_packets; i++) {
+ 		cp = (unsigned char *)urb->transfer_buffer + urb->iso_frame_desc[i].offset + subs->pkt_offset_adj;
+@@ -1337,7 +1340,12 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
+ 					    "frame %d active: %d\n", i,
+ 					    urb->iso_frame_desc[i].status);
+ 		bytes = urb->iso_frame_desc[i].actual_length;
+-		if (subs->stream_offset_adj > 0) {
++		if (rme_uc) {
++			/* header + planar channels, see rme_uc.c */
++			frames = bytes >= RME_UC_CAPTURE_HDR ?
++				 (bytes - RME_UC_CAPTURE_HDR) / stride : 0;
++			bytes = frames * stride;
++		} else if (subs->stream_offset_adj > 0) {
+ 			unsigned int adj = min(subs->stream_offset_adj, bytes);
+ 			cp += adj;
+ 			bytes -= adj;
+@@ -1370,7 +1378,14 @@ static void retire_capture_urb(struct snd_usb_substream *subs,
+ 			subs->last_frame_number = current_frame_number;
+ 		}
+ 		/* copy a data chunk */
+-		if (oldptr + bytes > subs->buffer_bytes) {
++		if (rme_uc) {
++			unsigned int pos = oldptr;
++
++			rme_uc_unpack_packet(runtime->dma_area,
++					     subs->buffer_bytes, &pos, cp,
++					     urb->iso_frame_desc[i].actual_length,
++					     runtime->channels);
++		} else if (oldptr + bytes > subs->buffer_bytes) {
+ 			unsigned int bytes1 = subs->buffer_bytes - oldptr;
+ 
+ 			memcpy(runtime->dma_area + oldptr, cp, bytes1);
+@@ -1517,6 +1532,34 @@ static unsigned int copy_to_urb_quirk(struct snd_usb_substream *subs,
+ 	return bytes;
+ }
+ 
++/*
++ * RME Fireface UC: the packet descriptors are already set up with the device
++ * stride (counter word + channels); copy the frames and insert the counter.
++ */
++static void fill_playback_urb_rme_uc(struct snd_usb_substream *subs,
++				     struct urb *urb)
++{
++	struct snd_pcm_runtime *runtime = subs->pcm_substream->runtime;
++	struct snd_usb_endpoint *ep = subs->data_endpoint;
++	unsigned int pos = subs->hwptr_done;
++	unsigned int frames = 0;
++	int i;
++
++	for (i = 0; i < urb->number_of_packets; i++) {
++		unsigned int n = urb->iso_frame_desc[i].length / ep->stride;
++
++		rme_uc_pack_packet(urb->transfer_buffer +
++				   urb->iso_frame_desc[i].offset,
++				   runtime->dma_area, subs->buffer_bytes, &pos,
++				   n, ep->cur_channels, ep->rme_uc_counter);
++		ep->rme_uc_counter += n;
++		frames += n;
++	}
++
++	/* ALSA buffer bookkeeping, in ALSA frames (without the counter) */
++	urb_ctx_queue_advance(subs, urb, frames * (runtime->frame_bits >> 3));
++}
++
+ static int prepare_playback_urb(struct snd_usb_substream *subs,
+ 				struct urb *urb,
+ 				bool in_stream_lock)
+@@ -1606,6 +1649,8 @@ static int prepare_playback_urb(struct snd_usb_substream *subs,
+ 		} else if (unlikely(ep->cur_format == SNDRV_PCM_FORMAT_DSD_U8 &&
+ 				    subs->cur_audiofmt->dsd_bitrev)) {
+ 			fill_playback_urb_dsd_bitrev(subs, urb, bytes);
++		} else if (snd_usb_is_rme_uc(subs->stream->chip)) {
++			fill_playback_urb_rme_uc(subs, urb);
+ 		} else {
+ 			/* usual PCM */
+ 			if (!subs->tx_length_quirk)
+diff --git a/sound/usb/quirks-table.h b/sound/usb/quirks-table.h
 index 9a28d7c..e776bb0 100644
---- a/quirks-table.h
-+++ b/quirks-table.h
+--- a/sound/usb/quirks-table.h
++++ b/sound/usb/quirks-table.h
 @@ -3982,6 +3982,97 @@ YAMAHA_DEVICE(0x7010, "UB99"),
  QUIRK_RME_DIGIFACE(0x3f8c),
  QUIRK_RME_DIGIFACE(0x3fa0),
@@ -112,10 +281,10 @@ index 9a28d7c..e776bb0 100644
  #define QUIRK_AF16RIG(channel_count_, alt_setting_,			\
  	              low_rate_, high_rate_, pack_size_,		\
  		      clock_, interface_, endpoint_)			\
-diff --git a/quirks.c b/quirks.c
+diff --git a/sound/usb/quirks.c b/sound/usb/quirks.c
 index 4d2957e..80ef6ce 100644
---- a/quirks.c
-+++ b/quirks.c
+--- a/sound/usb/quirks.c
++++ b/sound/usb/quirks.c
 @@ -29,6 +29,7 @@
  #include "pcm.h"
  #include "clock.h"
@@ -186,10 +355,10 @@ index 4d2957e..80ef6ce 100644
  	NULL
  };
  
-diff --git a/usbaudio.h b/usbaudio.h
+diff --git a/sound/usb/usbaudio.h b/sound/usb/usbaudio.h
 index e26f909..f063e52 100644
---- a/usbaudio.h
-+++ b/usbaudio.h
+--- a/sound/usb/usbaudio.h
++++ b/sound/usb/usbaudio.h
 @@ -288,6 +288,7 @@ enum {
  	QUIRK_TYPE_MIXER_CAPTURE_LINEAR_VOL	= 28,
  	QUIRK_TYPE_IFB_SILENCE_ON_EMPTY		= 29,

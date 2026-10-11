@@ -20,6 +20,13 @@ kernel/build.sh             # -> kernel/build/sound-usb/snd-usb-audio.ko
 ```
 
 After editing files in `kernel/build/sound-usb/`, run `kernel/export-patch.sh`.
+Style check (run from `kernel/`, otherwise checkpatch treats the patch as a
+tracked source file of this repository):
+
+```sh
+cd kernel && build/zen/scripts/checkpatch.pl --no-tree --no-signoff patches/*.patch
+build/zen/scripts/checkpatch.pl --no-tree -f sound-usb/rme_uc.c sound-usb/rme_uc.h
+```
 
 ## Load / unload (root)
 

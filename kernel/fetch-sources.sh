@@ -25,6 +25,6 @@ git -C "$SRC" -c user.name=fetch -c user.email=fetch@localhost \
 
 for p in "$HERE"/patches/*.patch; do
 	[ -e "$p" ] || continue
-	git -C "$SRC" apply "$p"
+	git -C "$SRC" apply -p3 "$p"	# patches use kernel paths: a/sound/usb/...
 	echo "applied $(basename "$p")"
 done
