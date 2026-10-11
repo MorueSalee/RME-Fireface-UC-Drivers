@@ -99,6 +99,12 @@ the position jumps every 65536 frames and an audible click occurs every ~1.49 s,
 always at the same place in the music. Wrapping modulo 8192 removes it. The
 prototype ([`fill_iso_out()`](../../libusb_test/rme_uc.c)) now does so.
 
+**The counter is required**: with `RME_NO_COUNTER=1` (word 0 forced to 0, everything
+else unchanged, no drift, no USB error) the prototype output crackles from start to
+end. A `snd-usb-audio` quirk must therefore write it in the first frame of every
+playback packet; the stream cannot simply be declared as 19 channels with a silent
+one.
+
 The official driver also makes occasional deliberate jumps (`0x175 + 2 → 0x459`),
 probably re-synchronisations; not needed so far with implicit feedback.
 

@@ -107,6 +107,12 @@ synchronised).
 
 See [audio-streaming.md](protocol/audio-streaming.md) for the format.
 
+## Test switches
+
+| Variable | Effect |
+| -------- | ------ |
+| `RME_NO_COUNTER=1` | Send 0 instead of the frame counter (shows that the device needs it). |
+
 ## Tracing
 
 `usb.h` defines `TRACE_USB`: every `send_ctrl_setup()` then prints one line with

@@ -50,7 +50,8 @@ packet).
 - [x] Sample format: **float32** (verified on `cap/play/play_square_*`).
 - [x] Playback word 0: frame counter, first frame of each packet only.
 - [x] Playback channel 1 is word 1 of each 19-word frame.
-- [x] Playback frame counter: **modulo 8192** (wrapping elsewhere = click every ~1.5 s).
+- [x] Playback frame counter: **modulo 8192** (wrapping elsewhere = click every ~1.5 s),
+      and **required** (forced to 0 = crackle all along).
 - [x] **Implicit feedback** verified: mirroring capture packet sizes removes a −32 ppm
       drift and the remaining crackle — clean playback on outputs 1/2
       ([audio-streaming.md](protocol/audio-streaming.md#synchronisation-implicit-feedback-verified)).
@@ -72,7 +73,8 @@ packet).
 - [ ] Out-of-tree build of `sound/usb/` for the running kernel.
 - [ ] `quirks-table.h` entry: iface 0, alt 1/2/3, 18 ch out / 18 ch in, `FLOAT_LE`,
       `EP 0x01` / `0x82`, implicit feedback.
-- [ ] Handle the playback frame-counter word (if required) and the capture extra word.
+- [ ] Write the playback frame counter (required) in the first frame of each packet,
+      and strip the capture extra word.
 - [ ] Rate setting (`0x1b` / `0x10`).
 - [ ] Basic mixer controls: clock source, sync status, rates, levels, digital formats
       ([settings.md](protocol/settings.md)).

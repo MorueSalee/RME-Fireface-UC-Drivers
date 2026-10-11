@@ -53,6 +53,7 @@ static unsigned long long frames_in  = 0;	/* frames received on EP 0x82  */
 
 
 uint32_t unkId = 0x16;
+static int no_counter = 0;	/* RME_NO_COUNTER=1 : send 0 instead of the frame counter (test) */
 
 
 
@@ -212,7 +213,7 @@ static int fill_iso_out( struct libusb_transfer *xfr )
 				(cap/play/play_music_pb_1-2_out_1-2.pcapng : 0x200f + 5 -> 0x0014).
 				Wrapping elsewhere makes the position jump every 65536 frames (~1.5 s).
 			*/
-			if ( f == 0 )
+			if ( f == 0 && !no_counter )
 			{
 				frame[0] = unkId & 0x1fff;
 			}
@@ -714,6 +715,13 @@ SEND_AUDIO:
 
 
 	// int loop_cnt = 0;
+
+	no_counter = ( getenv( "RME_NO_COUNTER" ) != NULL );
+
+	if ( no_counter )
+	{
+		printf( "frame counter disabled (RME_NO_COUNTER)\n" );
+	}
 
 	start_iso_in( EP_ISO_IN );
 
