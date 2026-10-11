@@ -77,12 +77,14 @@ packet).
 
 ### Phase 4 — `snd-usb-audio` quirk
 
-- [ ] Out-of-tree build of `sound/usb/` for the running kernel.
-- [ ] `quirks-table.h` entry: iface 0, alt 1/2/3 with 18 / 14 / 12 ch, `FLOAT_LE`,
+- [x] Out-of-tree build of `sound/usb/` for the running kernel ([kernel/README.md](../kernel/README.md)).
+- [x] `quirks-table.h` entry: iface 0, alt 1/2/3 with 18 / 14 / 12 ch, `FLOAT_LE`,
       `EP 0x01` / `0x82`, implicit feedback.
-- [ ] Device-specific copy routines: playback frame counter (required) in the first
+- [x] Device-specific copy routines: playback frame counter (required) in the first
       frame of each packet; capture header skipped and planar channels re-interleaved.
-- [ ] Rate setting (`0x1b` / `0x10`).
+- [x] Rate setting (`0x1b` / `0x10`) and hardware unmute (`0x14`) when a stream is set up.
+- [x] Verified on hardware: clean playback, loopback channel identification at 44.1 / 96 / 192 kHz
+      ([results](../kernel/README.md#results-2026-10-11-firmware-138-2a393fcf-kernel-729-zen1)).
 - [ ] Basic mixer controls: clock source, sync status, rates, levels, digital formats
       ([settings.md](protocol/settings.md)).
 - [ ] Submit to `alsa-devel`.

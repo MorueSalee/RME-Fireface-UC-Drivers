@@ -6,7 +6,13 @@
 ├── Makefile                  Top-level: builds libusb_test/ (make -C libusb_test)
 ├── device_descriptor         Raw `lsusb -v -d 0424:3fc6` dump (AP mode, fw v118) + annotated notes
 ├── device_descriptor_2a39_3fce_pc_mode   `lsusb -v` of a recent firmware in PC mode
-├── tools/                    Offline usbmon pcapng parsers (usbmon_ctl.py, usbmon_iso.py)
+├── tools/                    usbmon pcapng parsers, capture dump reader, rme_ctl.py (control
+│                             requests + test signals while snd-usb-audio is bound), udev rule
+├── kernel/                   snd-usb-audio support (see kernel/README.md)
+│   ├── sound-usb/rme_uc.[ch] stream format helpers (new driver file)
+│   ├── patches/              changes to existing sound/usb files
+│   ├── tests/                userspace unit tests of rme_uc.c
+│   └── *.sh                  fetch sources, build, export patch, load / unload
 ├── docs/                     This documentation
 │   ├── README.md             Documentation index + glossary
 │   ├── project-layout.md     This file
