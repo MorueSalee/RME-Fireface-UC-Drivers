@@ -58,7 +58,9 @@ packet).
 - [x] Capture layout: 4-byte header (timestamp, 1/32 frame units) + **planar**
       channels (verified with the hardware loopback,
       [audio-streaming.md](protocol/audio-streaming.md#packet-layout-header--planar-channels-verified)).
-- [ ] Full channel order (outputs 3–18, inputs).
+- [x] Channel order: word / block k = output k for k = 1..18 in both directions
+      (AN 1–6, phones 7/8, S/PDIF 9/10, ADAT 11–18), verified with the loopback.
+- [x] Mixer writes (`0x12`) and loopback (`0x15`) verified on hardware.
 - [ ] Alt settings 2 and 3: packet sizes and channel counts.
 - [ ] Minimal init sequence (`0x16` × 36, `0x10 0x0800/0xb800`, `0x20`): test with/without.
 

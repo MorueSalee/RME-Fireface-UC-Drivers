@@ -97,6 +97,12 @@ Both the index formula and the `>> 2` were checked against the captures:
 * output faders 992–1009 with the levels above in
   `cap/pluginit_full3_outputsLevels-*.pcapng`.
 
+Verified on hardware too (firmware 138): writing the 18 diagonal cells
+`36·k + 18 + k` at 0 dB, the other playback cells at −∞ and the output faders at
+0 dB routes playback k to output k for all 18 channels (checked through the
+loopback). The written mix is **stored by the device** and survives a new
+session.
+
 The C reimplementation [`setVolume()`](../../asm/TotalmixFX/CCardIOUC::SetGain.c)
 originally used `out·13 + type·11 + ch` and `wValue = level`; it has been fixed to
 match the assembly.

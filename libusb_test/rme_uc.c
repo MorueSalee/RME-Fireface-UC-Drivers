@@ -779,6 +779,18 @@ SEND_AUDIO:
 		}
 	}
 
+	/*
+		RME_OUT_FADERS_FROM=<n> : output faders of outputs n .. 18 at 0 dB
+		(indexes 992 + out, channel type 2). Overwrites the device mix.
+	*/
+	if ( getenv( "RME_OUT_FADERS_FROM" ) )
+	{
+		for ( int out = atoi( getenv( "RME_OUT_FADERS_FROM" ) ) - 1; out >= 0 && out < 18; out++ )
+		{
+			setVolume( devh, 0, 2 /* output */, out, 0x8000 );
+		}
+	}
+
 	int loopback = getenv( "RME_LOOPBACK" ) ? atoi( getenv( "RME_LOOPBACK" ) ) : 0;
 
 	if ( loopback > 18 )

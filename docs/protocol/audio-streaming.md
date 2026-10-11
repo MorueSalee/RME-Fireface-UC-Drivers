@@ -135,6 +135,21 @@ in all 4000 recorded packets, words `1..n` and `n+1..2n` hold the same ramp
 noise floor. Recorded with `RME_LOOPBACK=2 RME_DUMP_IN=<file>`
 (see [libusb-test.md](../libusb-test.md#test-switches)).
 
+### Channel order (verified)
+
+Identical in both directions and equal to the output order of the mixer:
+
+| Channel | 1–6 | 7–8 | 9–10 | 11–18 |
+| ------- | --- | --- | ---- | ----- |
+| Output | analog 1–6 (rear) | analog 7/8 = phones (front) | S/PDIF L/R | ADAT 1–8 |
+
+Verified on hardware: with a diagonal mix (playback k → output k), output faders at
+0 dB and loopback on all 18 outputs, a sawtooth of amplitude 0.002 × k written in
+word k of each playback frame comes back in capture block k, for k = 1..18
+(`RME_MIX_DIAGONAL=1 RME_OUT_FADERS_FROM=3 RME_ID_CHANNELS=1 RME_LOOPBACK=18`).
+The loopback taps each output **after the mixer and the output fader**.
+(Channel names: see [mixer-routing.md](mixer-routing.md#output-master-volumes).)
+
 ### Header word
 
 * **Bits 0–15**: a timestamp in **1/32 frame** units, sampled at each microframe:

@@ -32,8 +32,13 @@ wIndex           : channelID
 wLength          : 0x0000
 ```
 
-**TODO**: reimplement it; find out whether init sends default or user values
-(should be user values).
+`channelID` is the output index **0–17** (the official driver sends `0x0000` for all
+18 at init). Verified on hardware: with loopback on output k, capture channel k
+carries what output k plays — after the mixer and the output fader — instead of
+input k. See [audio-streaming.md](audio-streaming.md#channel-order-verified).
+
+**TODO**: reimplement `SetLoopbackChannel()`; find out whether init sends default
+or user values (should be user values).
 
 ## Set Input / Playback Volume
 

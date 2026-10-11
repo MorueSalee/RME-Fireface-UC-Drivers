@@ -114,6 +114,7 @@ See [audio-streaming.md](protocol/audio-streaming.md) for the format.
 | `RME_NO_COUNTER=1` | Send 0 instead of the frame counter (shows that the device needs it). |
 | `RME_LOOPBACK=<n>` | Enable the device loopback on outputs 1 .. n (`0x40 0x15`) during the run, disable it at the end. |
 | `RME_MIX_DIAGONAL=1` | **Overwrites the device mix**: playback k → output k at 0 dB, other playback → output cells at −∞ (`0x12`, 324 requests). |
+| `RME_OUT_FADERS_FROM=<n>` | **Overwrites the device mix**: output faders of outputs n .. 18 at 0 dB (indexes 992 + out). |
 | `RME_ID_CHANNELS=1` | Ignore the audio content: playback channel n gets a 441 Hz sawtooth of amplitude 0.002 × n (stdin still paces the run). |
 | `RME_DUMP_IN=<file>` | Record 4000 raw capture packets (after 2 s) as `uint16 length` + bytes; read them with [`tools/capture_dump.py`](../tools/capture_dump.py). |
 
