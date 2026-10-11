@@ -1,0 +1,213 @@
+diff --git a/Makefile b/Makefile
+index e62794a..9d10eb9 100644
+--- a/Makefile
++++ b/Makefile
+@@ -20,6 +20,7 @@ snd-usb-audio-y := 	card.o \
+ 			power.o \
+ 			proc.o \
+ 			quirks.o \
++			rme_uc.o \
+ 			stream.o \
+ 			validate.o
+ 
+diff --git a/quirks-table.h b/quirks-table.h
+index 9a28d7c..e776bb0 100644
+--- a/quirks-table.h
++++ b/quirks-table.h
+@@ -3982,6 +3982,97 @@ YAMAHA_DEVICE(0x7010, "UB99"),
+ QUIRK_RME_DIGIFACE(0x3f8c),
+ QUIRK_RME_DIGIFACE(0x3fa0),
+ 
++/*
++ * RME Fireface UC in AP (Mac) mode: one alternate setting per rate band,
++ * 18 / 14 / 12 channels (ADAT S/MUX), float samples, implicit feedback from
++ * the capture endpoint. maxpacksize is given because the high-bandwidth
++ * multiplier of alt 3 is not applied by the fixed-stream parser.
++ */
++#define RME_UC_PLAYBACK(alt, ch, maxpack, rates_, r0, r1, r2) \
++	{ \
++		QUIRK_DATA_AUDIOFORMAT(0) { \
++			.formats = SNDRV_PCM_FMTBIT_FLOAT_LE, \
++			.channels = ch, \
++			.fmt_bits = 32, \
++			.iface = 0, \
++			.altsetting = alt, \
++			.altset_idx = alt, \
++			.endpoint = 0x01, \
++			.ep_idx = 0, \
++			.ep_attr = USB_ENDPOINT_XFER_ISOC | \
++				   USB_ENDPOINT_SYNC_ASYNC, \
++			.maxpacksize = maxpack, \
++			.rates = rates_, \
++			.rate_min = r0, \
++			.rate_max = r2, \
++			.nr_rates = 3, \
++			.rate_table = (unsigned int[]) { r0, r1, r2 }, \
++			.sync_ep = 0x82, \
++			.sync_iface = 0, \
++			.sync_altsetting = alt, \
++			.sync_ep_idx = 1, \
++			.implicit_fb = 1, \
++		}, \
++	}
++
++#define RME_UC_CAPTURE(alt, ch, maxpack, rates_, r0, r1, r2) \
++	{ \
++		QUIRK_DATA_AUDIOFORMAT(0) { \
++			.formats = SNDRV_PCM_FMTBIT_FLOAT_LE, \
++			.channels = ch, \
++			.fmt_bits = 32, \
++			.iface = 0, \
++			.altsetting = alt, \
++			.altset_idx = alt, \
++			.endpoint = 0x82, \
++			.ep_idx = 1, \
++			.ep_attr = USB_ENDPOINT_XFER_ISOC | \
++				   USB_ENDPOINT_SYNC_ASYNC, \
++			.maxpacksize = maxpack, \
++			.rates = rates_, \
++			.rate_min = r0, \
++			.rate_max = r2, \
++			.nr_rates = 3, \
++			.rate_table = (unsigned int[]) { r0, r1, r2 }, \
++		}, \
++	}
++
++#define RME_UC_RATES_1X \
++	(SNDRV_PCM_RATE_32000 | SNDRV_PCM_RATE_44100 | SNDRV_PCM_RATE_48000)
++#define RME_UC_RATES_2X \
++	(SNDRV_PCM_RATE_64000 | SNDRV_PCM_RATE_88200 | SNDRV_PCM_RATE_96000)
++#define RME_UC_RATES_4X \
++	(SNDRV_PCM_RATE_KNOT | SNDRV_PCM_RATE_176400 | SNDRV_PCM_RATE_192000)
++
++#define QUIRK_RME_FIREFACE_UC(vid, pid) \
++{ \
++	/* Only claim interface 0 */ \
++	.match_flags = USB_DEVICE_ID_MATCH_VENDOR | \
++		       USB_DEVICE_ID_MATCH_PRODUCT | \
++		       USB_DEVICE_ID_MATCH_INT_CLASS | \
++		       USB_DEVICE_ID_MATCH_INT_NUMBER, \
++	.idVendor = vid, \
++	.idProduct = pid, \
++	.bInterfaceClass = USB_CLASS_VENDOR_SPEC, \
++	.bInterfaceNumber = 0, \
++	QUIRK_DRIVER_INFO { \
++		.vendor_name = "RME", \
++		.product_name = "Fireface UC", \
++		QUIRK_DATA_COMPOSITE { \
++			RME_UC_PLAYBACK(1, 18,  532, RME_UC_RATES_1X, 32000, 44100, 48000), \
++			RME_UC_PLAYBACK(2, 14,  780, RME_UC_RATES_2X, 64000, 88200, 96000), \
++			RME_UC_PLAYBACK(3, 12, 1304, RME_UC_RATES_4X, 128000, 176400, 192000), \
++			RME_UC_CAPTURE(1, 18,  508, RME_UC_RATES_1X, 32000, 44100, 48000), \
++			RME_UC_CAPTURE(2, 14,  732, RME_UC_RATES_2X, 64000, 88200, 96000), \
++			RME_UC_CAPTURE(3, 12, 1208, RME_UC_RATES_4X, 128000, 176400, 192000), \
++			QUIRK_COMPOSITE_END \
++		} \
++	} \
++}
++
++QUIRK_RME_FIREFACE_UC(0x0424, 0x3fc6),
++QUIRK_RME_FIREFACE_UC(0x2a39, 0x3fcf),
++
+ #define QUIRK_AF16RIG(channel_count_, alt_setting_,			\
+ 	              low_rate_, high_rate_, pack_size_,		\
+ 		      clock_, interface_, endpoint_)			\
+diff --git a/quirks.c b/quirks.c
+index 4d2957e..80ef6ce 100644
+--- a/quirks.c
++++ b/quirks.c
+@@ -29,6 +29,7 @@
+ #include "pcm.h"
+ #include "clock.h"
+ #include "stream.h"
++#include "rme_uc.h"
+ 
+ /*
+  * handle the quirks for the contained interfaces
+@@ -1855,6 +1856,24 @@ static int rme_digiface_set_format_quirk(struct snd_usb_substream *subs)
+ 	return 0;
+ }
+ 
++/*
++ * RME Fireface UC: period of the base rate (0x1b), then rate family (0x10,
++ * mask 0x0030). The alternate setting of the rate band is already selected.
++ */
++static void rme_uc_set_format_quirk(struct snd_usb_substream *subs)
++{
++	struct usb_device *dev = subs->stream->chip->dev;
++	struct rme_uc_rate_regs regs;
++
++	if (rme_uc_rate_regs(subs->data_endpoint->cur_rate, &regs) < 0)
++		return;
++
++	snd_usb_ctl_msg(dev, usb_sndctrlpipe(dev, 0), 0x1b, 0x40,
++			regs.period_hi, regs.period_lo, NULL, 0);
++	snd_usb_ctl_msg(dev, usb_sndctrlpipe(dev, 0), 0x10, 0x40,
++			regs.family, 0x0030, NULL, 0);
++}
++
+ void snd_usb_set_format_quirk(struct snd_usb_substream *subs,
+ 			      const struct audioformat *fmt)
+ {
+@@ -1885,6 +1904,10 @@ void snd_usb_set_format_quirk(struct snd_usb_substream *subs,
+ 	case USB_ID(0x2a39, 0x3fa0): /* RME Digiface USB (alternate) */
+ 		rme_digiface_set_format_quirk(subs);
+ 		break;
++	case USB_ID(0x0424, 0x3fc6): /* RME Fireface UC (firmware <= 118) */
++	case USB_ID(0x2a39, 0x3fcf): /* RME Fireface UC */
++		rme_uc_set_format_quirk(subs);
++		break;
+ 	}
+ }
+ 
+@@ -2221,6 +2244,8 @@ static const struct usb_audio_quirk_flags_table quirk_flags_table[] = {
+ 		   QUIRK_FLAG_IGNORE_CTL_ERROR),
+ 	DEVICE_FLG(0x041e, 0x4080, /* Creative Live Cam VF0610 */
+ 		   QUIRK_FLAG_GET_SAMPLE_RATE),
++	DEVICE_FLG(0x0424, 0x3fc6, /* RME Fireface UC (AP mode, firmware <= 118) */
++		   QUIRK_FLAG_RME_UC),
+ 	DEVICE_FLG(0x045e, 0x083c, /* MS USB Link headset */
+ 		   QUIRK_FLAG_GET_SAMPLE_RATE | QUIRK_FLAG_CTL_MSG_DELAY |
+ 		   QUIRK_FLAG_DISABLE_AUTOSUSPEND),
+@@ -2484,6 +2509,8 @@ static const struct usb_audio_quirk_flags_table quirk_flags_table[] = {
+ 		   0), /* for avoiding QUIRK_FLAG_DSD_RAW with vendor match */
+ 	DEVICE_FLG(0x2912, 0x30c8, /* Audioengine D1 */
+ 		   QUIRK_FLAG_GET_SAMPLE_RATE),
++	DEVICE_FLG(0x2a39, 0x3fcf, /* RME Fireface UC (AP mode) */
++		   QUIRK_FLAG_RME_UC),
+ 	DEVICE_FLG(0x2a70, 0x1881, /* OnePlus Technology (Shenzhen) Co., Ltd. BE02T */
+ 		   QUIRK_FLAG_MIXER_PLAYBACK_MIN_MUTE | QUIRK_FLAG_MIXER_CAPTURE_MIN_MUTE),
+ 	DEVICE_FLG(0x2b53, 0x0023, /* Fiero SC-01 (firmware v1.0.0 @ 48 kHz) */
+@@ -2641,6 +2668,7 @@ static const char *const snd_usb_audio_quirk_flag_names[] = {
+ 	QUIRK_STRING_ENTRY(MIXER_CAPTURE_LINEAR_VOL),
+ 	QUIRK_STRING_ENTRY(IFB_SILENCE_ON_EMPTY),
+ 	QUIRK_STRING_ENTRY(MIXER_GET_CUR_BROKEN),
++	QUIRK_STRING_ENTRY(RME_UC),
+ 	NULL
+ };
+ 
+diff --git a/usbaudio.h b/usbaudio.h
+index e26f909..f063e52 100644
+--- a/usbaudio.h
++++ b/usbaudio.h
+@@ -288,6 +288,7 @@ enum {
+ 	QUIRK_TYPE_MIXER_CAPTURE_LINEAR_VOL	= 28,
+ 	QUIRK_TYPE_IFB_SILENCE_ON_EMPTY		= 29,
+ 	QUIRK_TYPE_MIXER_GET_CUR_BROKEN		= 30,
++	QUIRK_TYPE_RME_UC			= 31,
+ /* Please also edit snd_usb_audio_quirk_flag_names */
+ };
+ 
+@@ -324,5 +325,12 @@ enum {
+ #define QUIRK_FLAG_MIXER_CAPTURE_LINEAR_VOL	QUIRK_FLAG(MIXER_CAPTURE_LINEAR_VOL)
+ #define QUIRK_FLAG_IFB_SILENCE_ON_EMPTY		QUIRK_FLAG(IFB_SILENCE_ON_EMPTY)
+ #define QUIRK_FLAG_MIXER_GET_CUR_BROKEN		QUIRK_FLAG(MIXER_GET_CUR_BROKEN)
++#define QUIRK_FLAG_RME_UC			QUIRK_FLAG(RME_UC)
++
++/* RME Fireface UC: device-specific stream format, see rme_uc.c */
++static inline bool snd_usb_is_rme_uc(struct snd_usb_audio *chip)
++{
++	return chip->quirk_flags & QUIRK_FLAG_RME_UC;
++}
+ 
+ #endif /* __USBAUDIO_H */
