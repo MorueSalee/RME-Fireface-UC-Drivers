@@ -132,7 +132,7 @@ Verified on hardware (firmware 138) with the device's **loopback** on outputs 1/
 (`0x40 0x15 0x0001 0x0000` / `0x0001`) and a known sawtooth played on both channels:
 in all 4000 recorded packets, words `1..n` and `n+1..2n` hold the same ramp
 (+0.0005 per frame, continuous across packets); the other channels carry the input
-noise floor. Recorded with `RME_LOOPBACK=1 RME_DUMP_IN=<file>`
+noise floor. Recorded with `RME_LOOPBACK=2 RME_DUMP_IN=<file>`
 (see [libusb-test.md](../libusb-test.md#test-switches)).
 
 ### Header word

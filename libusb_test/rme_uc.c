@@ -54,6 +54,8 @@ static unsigned long long frames_in  = 0;	/* frames received on EP 0x82  */
 
 uint32_t unkId = 0x16;
 static int no_counter = 0;	/* RME_NO_COUNTER=1 : send 0 instead of the frame counter (test) */
+static int id_channels = 0;	/* RME_ID_CHANNELS=1 : channel n plays a sawtooth of amplitude 0.002 * n (test) */
+static unsigned long long id_frame = 0;
 static FILE *dump_in = NULL;	/* RME_DUMP_IN=<file> : raw capture packets (test) */
 static unsigned long dumped_in = 0;
 #define DUMP_IN_SKIP	88200	/* start dumping after 2 s */
@@ -222,8 +224,21 @@ static int fill_iso_out( struct libusb_transfer *xfr )
 				frame[0] = unkId & 0x1fff;
 			}
 
-			frame[1] = pcm[z];
-			frame[2] = pcm[z];
+			if ( id_channels )
+			{
+				float ramp = (float)( id_frame++ % 100 ) / 100.0f;
+
+				for ( int c = 0; c < 18; c++ )
+				{
+					float v = 0.002f * ( c + 1 ) * ramp;
+					memcpy( &frame[1 + c], &v, 4 );
+				}
+			}
+			else
+			{
+				frame[1] = pcm[z];
+				frame[2] = pcm[z];
+			}
 
 			z++;
 		}
@@ -668,6 +683,11 @@ int main( int argc, char **argv )
 
 SEND_AUDIO:
 
+	if ( !devh )	/* offline : control requests were only traced, no audio stream possible */
+	{
+		goto out;
+	}
+
 	/*
 		Set Sample Rate
 	*/
@@ -731,6 +751,7 @@ SEND_AUDIO:
 	// int loop_cnt = 0;
 
 	no_counter = ( getenv( "RME_NO_COUNTER" ) != NULL );
+	id_channels = ( getenv( "RME_ID_CHANNELS" ) != NULL );
 
 	if ( getenv( "RME_DUMP_IN" ) )
 	{
@@ -738,16 +759,37 @@ SEND_AUDIO:
 	}
 
 	/*
-		Loopback on outputs 1 / 2 (0x40 0x15 wValue 1 wIndex 0 / 1, as the official
-		driver numbers outputs 0-17) : the device feeds what it plays back to the
-		matching capture channels.
+		RME_LOOPBACK=<n> : loopback on outputs 1 .. n (0x40 0x15 wValue 1 wIndex 0 .. n-1,
+		as the official driver numbers outputs 0-17) : the device feeds what it plays
+		back to the matching capture channels.
 	*/
-	int loopback = ( getenv( "RME_LOOPBACK" ) != NULL );
+	/*
+		RME_MIX_DIAGONAL=1 : playback k -> output k at 0 dB, every other
+		playback -> output cell at -inf (input -> output cells are not touched).
+		Overwrites the mix stored in the device.
+	*/
+	if ( getenv( "RME_MIX_DIAGONAL" ) )
+	{
+		for ( int out = 0; out < 18; out++ )
+		{
+			for ( int ch = 0; ch < 18; ch++ )
+			{
+				setVolume( devh, ch, 1 /* playback */, out, ( ch == out ) ? 0x8000 : 0 );
+			}
+		}
+	}
+
+	int loopback = getenv( "RME_LOOPBACK" ) ? atoi( getenv( "RME_LOOPBACK" ) ) : 0;
+
+	if ( loopback > 18 )
+	{
+		loopback = 18;
+	}
 	ctrl_setup lb = { 0x40, 0x15, 0x0001, 0x0000, 0x0000 };
 
 	if ( loopback )
 	{
-		for ( lb.wIndex = 0; lb.wIndex < 2; lb.wIndex++ )
+		for ( lb.wIndex = 0; lb.wIndex < loopback; lb.wIndex++ )
 		{
 			send_ctrl_setup( devh, &lb, NULL );
 		}
@@ -793,7 +835,7 @@ SEND_AUDIO:
 	{
 		lb.wValue = 0x0000;
 
-		for ( lb.wIndex = 0; lb.wIndex < 2; lb.wIndex++ )
+		for ( lb.wIndex = 0; lb.wIndex < loopback; lb.wIndex++ )
 		{
 			send_ctrl_setup( devh, &lb, NULL );
 		}
