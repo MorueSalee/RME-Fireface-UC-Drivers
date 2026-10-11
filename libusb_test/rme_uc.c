@@ -586,7 +586,15 @@ int main( int argc, char **argv )
 		Init Hardware
 	*/
 
-	hwInitHardware( devh );
+	/* RME_SKIP_INIT=1 : do not send the hwInitHardware() requests (0x16 x 36, 0x10, 0x20) */
+	if ( getenv( "RME_SKIP_INIT" ) )
+	{
+		printf( "hwInitHardware() skipped (RME_SKIP_INIT)\n" );
+	}
+	else
+	{
+		hwInitHardware( devh );
+	}
 
 
 

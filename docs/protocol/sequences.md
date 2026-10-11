@@ -14,6 +14,9 @@ As performed by the macOS driver + TotalMix (capture `cap/pluginit_full*.pcapng`
      `n = 0..17` (meaning unknown — one per channel?);
    * `0x40 0x10 0x0800 0xb800` (unknown);
    * `0x40 0x20 0x0001 0x0000` (unknown).
+   **Not required for playback**: after a power cycle of the unit, the prototype
+   plays cleanly at 44.1 kHz without sending any of these requests
+   (`RME_SKIP_INIT=1`, firmware 138). Their purpose remains unknown.
 3. **Set sample rate** — the driver always starts at 44100 Hz:
 
    ```

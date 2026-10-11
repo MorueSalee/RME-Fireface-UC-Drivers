@@ -63,7 +63,10 @@ packet).
 - [x] Mixer writes (`0x12`) and loopback (`0x15`) verified on hardware.
 - [x] Alt settings 2 and 3: **14 and 12 channels** (ADAT S/MUX), verified at 96 and
       192 kHz ([audio-streaming.md](protocol/audio-streaming.md#transport)).
-- [ ] Minimal init sequence (`0x16` × 36, `0x10 0x0800/0xb800`, `0x20`): test with/without.
+- [x] Minimal init sequence: **none needed for playback**. After a power cycle, clean
+      playback at 44.1 kHz without any `hwInitHardware()` request (`RME_SKIP_INIT=1`).
+      Their role (`0x16` × 36, `0x10 0x0800/0xb800`, `0x20`) is still unknown; not
+      tested at 96/192 kHz nor for capture quality.
 
 ### Phase 3 — Align with the Digiface
 
